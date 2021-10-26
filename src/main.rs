@@ -1,6 +1,10 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+use fern;
+use log::{error, info};
+use std::io;
+use std::path::PathBuf;
 use std::process;
 use structopt::StructOpt;
 
@@ -9,11 +13,14 @@ struct CliArgs {
     #[structopt(short, long)]
     verbose: bool,
 
-    #[structopt(short="n", long)]
+    #[structopt(short = "n", long)]
     dry_run: bool,
 
+    #[structopt(short = "l", long)]
+    log: Option<PathBuf>,
+
     #[structopt(short, long, parse(from_os_str))]
-    config: Option<std::path::PathBuf>,
+    config: Option<PathBuf>,
 
     #[structopt(subcommand)]
     cmd: Command,
@@ -43,12 +50,60 @@ struct SudoCmd {
     args: Vec<String>,
 }
 
+fn init_logging(verbose: bool, log: Option<PathBuf>, cmd: &Command) -> Result<(), fern::InitError> {
+    let file_level = if verbose {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+    let console_level = match cmd {
+        Command::Ssh(_) => log::LevelFilter::Off,
+        _ => file_level,
+    };
+    let logging = fern::Dispatch::new().level(file_level);
+
+    let stdout_log = fern::Dispatch::new()
+        .format(|out, message, _| {
+            out.finish(format_args!(
+                "{} {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                message
+            ))
+        })
+        .level(console_level)
+        .chain(io::stdout());
+
+    let mut file_log = fern::Dispatch::new();
+    if let Some(log) = log {
+        file_log = file_log
+            .format(|out, message, record| {
+                out.finish(format_args!(
+                    "[{}] [{}] [{}] {}",
+                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                    record.target(),
+                    record.level(),
+                    message
+                ))
+            })
+            .chain(fern::log_file(log)?);
+    }
+
+    logging.chain(file_log).chain(stdout_log).apply()?;
+
+    Ok(())
+}
+
 fn main() {
     let args = CliArgs::from_args();
 
+    init_logging(args.verbose, args.log, &args.cmd).unwrap_or_else(|e| {
+        eprintln!("Failed to set up logging: {}", e);
+        process::exit(1);
+    });
+
     if let Some(config) = args.config {
         if !config.is_file() {
-            eprintln!("{} is not a file", config.display());
+            error!("{} is not a file", config.display());
             process::exit(1);
         }
     }
@@ -59,7 +114,7 @@ fn main() {
         }
 
         Command::Sudo(sudo) => {
-            println!("sudo args={:?}", sudo.args);
+            info!("sudo args={:?}", sudo.args);
         }
     }
 }
