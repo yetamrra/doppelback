@@ -1,6 +1,9 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+mod commands;
+
+use commands::ssh;
 use fern;
 use log::{error, info};
 use std::io;
@@ -30,18 +33,12 @@ struct CliArgs {
 enum Command {
     /// Run as a forced ssh command.  The real command to be run will be parsed out
     /// of SSH_ORIGINAL_COMMAND.
-    Ssh(SshCmd),
+    Ssh(ssh::SshCmd),
 
     /// Sudo wrapper that allows doppelback to be run under sudo without giving permission
     /// to run arbitrary commands.  Only approved commands and arguments will be run in sudo
     /// mode.  This is mainly meant to be run internally as `sudo doppelback sudo ...`.
     Sudo(SudoCmd),
-}
-
-#[derive(Debug, StructOpt)]
-struct SshCmd {
-    #[structopt(env="SSH_ORIGINAL_COMMAND", default_value="/bin/false")]
-    original_cmd: String,
 }
 
 #[derive(Debug, StructOpt)]
@@ -110,7 +107,10 @@ fn main() {
 
     match args.cmd {
         Command::Ssh(ssh) => {
-            println!("ssh cmd={:?}", ssh.original_cmd);
+            if let Err(e) = ssh.exec_original() {
+                error!("ssh exec failed: {}", e);
+                process::exit(1);
+            }
         }
 
         Command::Sudo(sudo) => {
