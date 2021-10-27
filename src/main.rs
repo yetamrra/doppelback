@@ -3,6 +3,10 @@
 
 mod commands;
 
+#[cfg(test)]
+#[macro_use(lazy_static)]
+extern crate lazy_static;
+
 use commands::ssh;
 use fern;
 use log::{error, info};

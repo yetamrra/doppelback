@@ -90,3 +90,133 @@ fn filter_rsync(args: Vec<&str>) -> Result<Vec<OsString>, Error> {
 
     Ok(command)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::io::Result;
+    use std::os::unix::fs::symlink;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use tempdir::TempDir;
+
+    lazy_static! {
+        // FakeCommand methods should lock this before manipulating PATH.  Otherwise FakeCommand
+        // instances in separate threads can end up overwriting each other's changes.
+        static ref ENV_LOCK: Mutex<()> = Mutex::new(());
+    }
+
+    struct FakeCommand {
+        dir: tempdir::TempDir,
+        cmd: PathBuf,
+    }
+
+    impl FakeCommand {
+        fn new<P: AsRef<Path>>(command: P) -> Result<FakeCommand> {
+            let dir = TempDir::new("test")?;
+
+            let file_path = dir.path().join(command);
+            symlink("/bin/false", &file_path)?;
+
+            let _lock = ENV_LOCK.lock().unwrap();
+
+            if let Some(path) = env::var_os("PATH") {
+                let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+                paths.insert(0, dir.path().to_path_buf());
+                let new_path = env::join_paths(paths)
+                    .or(Err(Error::new(ErrorKind::Other, "Failed to join paths")))?;
+                env::set_var("PATH", &new_path);
+            }
+
+            Ok(FakeCommand {
+                dir: dir,
+                cmd: file_path,
+            })
+        }
+    }
+
+    impl Drop for FakeCommand {
+        fn drop(&mut self) {
+            let _lock = ENV_LOCK.lock().unwrap();
+
+            if let Some(path) = env::var_os("PATH") {
+                let paths = env::split_paths(&path)
+                    .filter(|p| p != self.dir.path())
+                    .collect::<Vec<_>>();
+                if let Ok(new_path) = env::join_paths(paths) {
+                    env::set_var("PATH", &new_path);
+                } else {
+                    error!("Failed to remove {} from PATH", self.dir.path().display());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fakecommand_cleans_path() {
+        let mytest = FakeCommand::new("mytest").unwrap();
+        let path = env::var_os("PATH").unwrap();
+        let dir = mytest.dir.path().to_str().unwrap().to_string();
+        assert!(path.to_str().unwrap().contains(&dir));
+        drop(mytest);
+        let path = env::var_os("PATH").unwrap();
+        assert!(!path.to_str().unwrap().contains(&dir));
+    }
+
+    #[test]
+    fn fakecommand_is_found() {
+        let mytest = FakeCommand::new("mytest").unwrap();
+
+        assert_eq!(mytest.cmd.file_name().unwrap(), "mytest");
+        assert!(mytest.cmd.exists());
+
+        let found = find_executable_in_path("mytest").unwrap();
+        assert_eq!(found, mytest.cmd);
+    }
+
+    #[test]
+    fn get_rsync_min_args() {
+        let cmd = SshCmd {
+            original_cmd: String::from("rsync -a /tmp ."),
+        };
+        assert!(cmd.get_command().is_err());
+    }
+
+    #[test]
+    fn get_rsync_requires_server() {
+        let cmd = SshCmd {
+            original_cmd: String::from("rsync -a 2 3 4 5"),
+        };
+        assert!(cmd.get_command().is_err());
+    }
+
+    #[test]
+    fn get_rsync_requires_sender() {
+        let cmd = SshCmd {
+            original_cmd: String::from("rsync --server 2 3 4 5"),
+        };
+        assert!(cmd.get_command().is_err());
+    }
+
+    #[test]
+    fn filter_rsync_removes_dangerous() {
+        let rsync = FakeCommand::new("rsync").unwrap();
+
+        let cmd = SshCmd {
+            original_cmd: String::from(
+                "rsync --server --sender --remove-sent-files --remove-source-files . /tmp/",
+            ),
+        };
+        assert_eq!(
+            cmd.get_command().unwrap(),
+            vec![
+                OsString::from(&rsync.cmd),
+                OsString::from("--server"),
+                OsString::from("--sender"),
+                OsString::from("."),
+                OsString::from("/tmp/")
+            ]
+        );
+    }
+}
