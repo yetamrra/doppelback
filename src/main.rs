@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 mod commands;
+mod config;
 
 #[cfg(test)]
 #[macro_use(lazy_static)]
 extern crate lazy_static;
 
+use config::Config;
 use commands::ssh;
 use fern;
 use log::{error, info};
@@ -35,6 +37,13 @@ struct CliArgs {
 
 #[derive(Debug, StructOpt)]
 enum Command {
+    /// Parse the config, check if contents are valid, and print the results.
+    ///
+    /// The config file is always parsed at startup, but the contents are only checked for validity
+    /// as needed by each subcommand.  This command runs all the checks to reduce the chances of
+    /// surprises later.
+    ConfigTest,
+
     /// Internal wrapper for forced ssh commands.
     ///
     /// When invoked as `doppelback ssh`, doppelback parses the real command out of
@@ -106,12 +115,17 @@ fn main() {
         process::exit(1);
     });
 
-    if let Some(config) = args.config {
-        if !config.is_file() {
-            error!("{} is not a file", config.display());
+    // If a config file was passed in, parse it before worrying about whether it's needed.  This
+    // ensures that the config is valid YAML.  Each specific subcommand will do further checks on
+    // the contents if needed.
+    let config: Config = match args.config {
+        Some(config_path) => Config::load(&config_path).unwrap_or_else(|e| {
+            error!("Failed to load config file {}: {}", config_path.display(), e);
             process::exit(1);
-        }
-    }
+        }),
+
+        None => Config::default(),
+    };
 
     match args.cmd {
         Command::Ssh(ssh) => {
@@ -123,6 +137,27 @@ fn main() {
 
         Command::Sudo(sudo) => {
             info!("sudo args={:?}", sudo.args);
+        }
+
+        // Runs all the checks on the config file and prints the results.  These aren't run every
+        // time we parse the config file because not every subcommand cares about every section.
+        Command::ConfigTest => {
+            if let Err(e) = config.snapshot_dir_valid() {
+                println!("Snapshot dir is invalid: {}", e);
+                process::exit(1);
+            }
+            println!("Saving snapshots into {}", config.snapshots.display());
+
+            for (host, host_config) in &config.hosts {
+                if !host_config.is_user_valid() {
+                    println!("Invalid user for {}", host);
+                } else {
+                    println!("Backups for {}@{}:", host_config.user, host);
+                    for source in &host_config.sources {
+                        println!("  {}", source.path.display());
+                    }
+                }
+            }
         }
     }
 }

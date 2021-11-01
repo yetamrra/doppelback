@@ -1,0 +1,28 @@
+# `snapshots` must be a path on the backup server where snapshots will be
+# stored.  Must contain a "live" subdirectory.
+snapshots: /path/to/snapshots
+
+# `hosts` is a set of machines to back up.  The key is the name of the machine,
+# and the value is the configuration for that particular host.
+hosts:
+  host1.example.com:
+    # `user` is the user on the remote machine.
+    user: backup
+
+    # `sources` is a list of backup sources on this machine.  Each entry in
+    # `sources` can have the following keys:
+    #   * path: Absolute path to be backed up.
+    #   * root: Doppelback will run rsync as root to access `path` if this is
+    #           true.
+    sources:
+      - path: /etc
+        root: true
+      - path: /
+        root: true
+      - path: /run/backup
+        root: false
+  host2.local:
+    user: backup
+    sources:
+      - path: /
+        root: true
