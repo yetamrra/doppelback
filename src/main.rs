@@ -35,8 +35,12 @@ struct CliArgs {
 
 #[derive(Debug, StructOpt)]
 enum Command {
-    /// Run as a forced ssh command.  The real command to be run will be parsed out
-    /// of SSH_ORIGINAL_COMMAND.
+    /// Internal wrapper for forced ssh commands.
+    ///
+    /// When invoked as `doppelback ssh`, doppelback parses the real command out of
+    /// SSH_ORIGINAL_COMMAND and runs it if the command and arguments are recognized.  If the
+    /// command is not recognized or its arguments do not match the expected patterns, doppelback
+    /// logs an error and quits without running the command.
     Ssh(ssh::SshCmd),
 
     /// Sudo wrapper that allows doppelback to be run under sudo without giving permission
