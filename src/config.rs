@@ -100,23 +100,34 @@ mod tests {
 
     #[test]
     fn snapshots_must_be_present() {
-        let cfg = Config { ..Config::default() };
+        let cfg = Config {
+            ..Config::default()
+        };
         assert!(cfg.snapshot_dir_valid().is_err());
     }
 
     #[test]
     fn snapshots_must_be_present_yaml() {
-        let cfg = Config { snapshots: Path::new("~").to_path_buf(), ..Config::default() };
+        let cfg = Config {
+            snapshots: Path::new("~").to_path_buf(),
+            ..Config::default()
+        };
         assert!(cfg.snapshot_dir_valid().is_err());
     }
 
     #[test]
     fn snapshots_must_be_dir() {
-        let cfg = Config { snapshots: Path::new("/dev/null").to_path_buf(), ..Config::default() };
+        let cfg = Config {
+            snapshots: Path::new("/dev/null").to_path_buf(),
+            ..Config::default()
+        };
         assert!(cfg.snapshot_dir_valid().is_err());
 
         let dir = TempDir::new("snapshots").unwrap();
-        let cfg = Config { snapshots: dir.path().to_path_buf(), ..Config::default() };
+        let cfg = Config {
+            snapshots: dir.path().to_path_buf(),
+            ..Config::default()
+        };
         let err = cfg.snapshot_dir_valid();
         assert!(err.is_err());
         match err {
@@ -131,31 +142,46 @@ mod tests {
         let live_dir = dir.path().join("live");
         fs::create_dir(live_dir).unwrap();
 
-        let cfg = Config { snapshots: dir.path().to_path_buf(), ..Config::default() };
+        let cfg = Config {
+            snapshots: dir.path().to_path_buf(),
+            ..Config::default()
+        };
         assert!(cfg.snapshot_dir_valid().is_ok());
     }
 
     #[test]
     fn backuphost_user_is_nonempty() {
-        let cfg = BackupHost { user: String::from(""), ..BackupHost::default() };
+        let cfg = BackupHost {
+            user: String::from(""),
+            ..BackupHost::default()
+        };
         assert!(!cfg.is_user_valid());
     }
 
     #[test]
     fn backuphost_user_is_nonempty_yaml() {
-        let cfg = BackupHost { user: String::from("~"), ..BackupHost::default() };
+        let cfg = BackupHost {
+            user: String::from("~"),
+            ..BackupHost::default()
+        };
         assert!(!cfg.is_user_valid());
     }
 
     #[test]
     fn backuphost_user_is_not_root() {
-        let cfg = BackupHost { user: String::from("root"), ..BackupHost::default() };
+        let cfg = BackupHost {
+            user: String::from("root"),
+            ..BackupHost::default()
+        };
         assert!(!cfg.is_user_valid());
     }
 
     #[test]
     fn backuphost_user_is_ok() {
-        let cfg = BackupHost { user: String::from("backupuser"), ..BackupHost::default() };
+        let cfg = BackupHost {
+            user: String::from("backupuser"),
+            ..BackupHost::default()
+        };
         assert!(cfg.is_user_valid());
     }
 }

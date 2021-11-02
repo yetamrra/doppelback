@@ -120,7 +120,11 @@ fn main() {
     // the contents if needed.
     let config: Config = match args.config {
         Some(config_path) => Config::load(&config_path).unwrap_or_else(|e| {
-            error!("Failed to load config file {}: {}", config_path.display(), e);
+            error!(
+                "Failed to load config file {}: {}",
+                config_path.display(),
+                e
+            );
             process::exit(1);
         }),
 
