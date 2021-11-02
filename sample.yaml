@@ -9,6 +9,10 @@ hosts:
     # `user` is the user on the remote machine.
     user: backup
 
+    # `key` is the ssh key used to connect to this host.  It can be an
+    # absolute path or the name of a file under ~/.ssh.
+    key: id_ecdsa_host1_backup
+
     # `sources` is a list of backup sources on this machine.  Each entry in
     # `sources` can have the following keys:
     #   * path: Absolute path to be backed up.
@@ -23,6 +27,7 @@ hosts:
         root: false
   host2.local:
     user: backup
+    key: id_rsa_host2_backup
     sources:
       - path: /
         root: true

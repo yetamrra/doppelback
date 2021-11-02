@@ -9,8 +9,8 @@ mod doppelback_error;
 #[macro_use(lazy_static)]
 extern crate lazy_static;
 
+use commands::{rsync, ssh};
 use config::Config;
-use commands::ssh;
 use fern;
 use log::{error, info};
 use std::io;
@@ -57,6 +57,9 @@ enum Command {
     /// to run arbitrary commands.  Only approved commands and arguments will be run in sudo
     /// mode.  This is mainly meant to be run internally as `sudo doppelback sudo ...`.
     Sudo(SudoCmd),
+
+    /// Run rsync for a single backup source.
+    Rsync(rsync::RsyncCmd),
 }
 
 #[derive(Debug, StructOpt)]
@@ -162,6 +165,13 @@ fn main() {
                         println!("  {}", source.path.display());
                     }
                 }
+            }
+        }
+
+        Command::Rsync(rsync) => {
+            if let Err(e) = rsync.run_rsync(&config, args.dry_run) {
+                error!("rsync failed: {}", e);
+                process::exit(1);
             }
         }
     }

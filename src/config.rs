@@ -17,6 +17,7 @@ pub struct Config {
 #[derive(Default, Deserialize, Debug)]
 pub struct BackupHost {
     pub user: String,
+    pub key: PathBuf,
     pub sources: Vec<BackupSource>,
 }
 

@@ -11,6 +11,7 @@ use std::process;
 pub enum DoppelbackError {
     IoError(io::Error),
     ParseError(serde_yaml::Error),
+    InvalidConfig(String),
     MissingDir(PathBuf),
     InvalidPath(PathBuf),
     CommandFailed(PathBuf, process::ExitStatus),
@@ -21,9 +22,15 @@ impl Display for DoppelbackError {
         match self {
             DoppelbackError::IoError(e) => write!(f, "{}", e),
             DoppelbackError::ParseError(e) => write!(f, "failed to parse config file: {}", e),
+            DoppelbackError::InvalidConfig(s) => write!(f, "invalid config: {}", s),
             DoppelbackError::MissingDir(d) => write!(f, "{} is not a directory", d.display()),
             DoppelbackError::InvalidPath(d) => write!(f, "{} is not a valid path", d.display()),
-            DoppelbackError::CommandFailed(c, s) => write!(f, "{} failed with exit status {}", c.display(), s.code().unwrap_or(-1)),
+            DoppelbackError::CommandFailed(c, s) => write!(
+                f,
+                "{} failed with exit status {}",
+                c.display(),
+                s.code().unwrap_or(-1)
+            ),
         }
     }
 }
@@ -33,6 +40,7 @@ impl error::Error for DoppelbackError {
         match self {
             DoppelbackError::IoError(e) => Some(e),
             DoppelbackError::ParseError(e) => Some(e),
+            DoppelbackError::InvalidConfig(_) => None,
             DoppelbackError::MissingDir(_) => None,
             DoppelbackError::InvalidPath(_) => None,
             DoppelbackError::CommandFailed(_, _) => None,
