@@ -1,12 +1,10 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+use crate::doppelback_error::DoppelbackError;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::error;
-use std::fmt::{self, Display};
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
 #[derive(Default, Deserialize, Debug)]
@@ -28,35 +26,27 @@ pub struct BackupSource {
     pub root: bool,
 }
 
-#[derive(Debug)]
-pub enum ConfigError {
-    ReadError(io::Error),
-    ParseError(serde_yaml::Error),
-    MissingDir(PathBuf),
-    InvalidPath(PathBuf),
-}
-
 impl Config {
-    pub fn load<P: AsRef<Path>>(file: P) -> Result<Self, ConfigError> {
-        let yaml = fs::read_to_string(file).map_err(ConfigError::ReadError)?;
-        serde_yaml::from_str(&yaml).map_err(ConfigError::ParseError)
+    pub fn load<P: AsRef<Path>>(file: P) -> Result<Self, DoppelbackError> {
+        let yaml = fs::read_to_string(file)?;
+        serde_yaml::from_str(&yaml).map_err(DoppelbackError::ParseError)
     }
 
-    pub fn snapshot_dir_valid(&self) -> Result<(), ConfigError> {
+    pub fn snapshot_dir_valid(&self) -> Result<(), DoppelbackError> {
         // serde_yaml parses an empty PathBuf as ~.  Check for this explicitly
         // so callers don't have to be surprised by it.
         if self.snapshots == Path::new("~").to_path_buf() {
-            return Err(ConfigError::InvalidPath(self.snapshots.clone()));
+            return Err(DoppelbackError::InvalidPath(self.snapshots.clone()));
         }
         if !self.snapshots.is_absolute() {
-            return Err(ConfigError::InvalidPath(self.snapshots.clone()));
+            return Err(DoppelbackError::InvalidPath(self.snapshots.clone()));
         }
         if !self.snapshots.is_dir() {
-            return Err(ConfigError::MissingDir(self.snapshots.clone()));
+            return Err(DoppelbackError::MissingDir(self.snapshots.clone()));
         }
         let live_dir = self.snapshots.join("live");
         if !live_dir.is_dir() {
-            return Err(ConfigError::MissingDir(live_dir));
+            return Err(DoppelbackError::MissingDir(live_dir));
         }
         Ok(())
     }
@@ -68,28 +58,6 @@ impl BackupHost {
         // so callers don't need to know that.  Also don't allow root, since
         // doppelback is meant to use sudo to gain root as needed.
         self.user.len() > 0 && self.user != "~" && self.user != "root"
-    }
-}
-
-impl Display for ConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ConfigError::ReadError(e) => write!(f, "failed to read config file: {}", e),
-            ConfigError::ParseError(e) => write!(f, "failed to parse config file: {}", e),
-            ConfigError::MissingDir(d) => write!(f, "{} is not a directory", d.display()),
-            ConfigError::InvalidPath(d) => write!(f, "{} is not a valid path", d.display()),
-        }
-    }
-}
-
-impl error::Error for ConfigError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            ConfigError::ReadError(e) => Some(e),
-            ConfigError::ParseError(e) => Some(e),
-            ConfigError::MissingDir(_) => None,
-            ConfigError::InvalidPath(_) => None,
-        }
     }
 }
 
@@ -131,7 +99,9 @@ mod tests {
         let err = cfg.snapshot_dir_valid();
         assert!(err.is_err());
         match err {
-            Err(ConfigError::MissingDir(d)) => assert!(format!("{}", d.display()).contains("live")),
+            Err(DoppelbackError::MissingDir(d)) => {
+                assert!(format!("{}", d.display()).contains("live"))
+            }
             _ => assert!(false),
         }
     }
