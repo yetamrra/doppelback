@@ -29,7 +29,7 @@ impl SshCmd {
 
     fn get_command(self) -> Result<Vec<OsString>, Error> {
         let args: Vec<&str> = self.original_cmd.split_ascii_whitespace().collect();
-        if args.len() < 1 {
+        if args.is_empty() {
             error!("Missing arguments to ssh subcommand");
             return Err(Error::new(ErrorKind::InvalidInput, "Missing arguments"));
         }

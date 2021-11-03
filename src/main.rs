@@ -11,7 +11,6 @@ extern crate lazy_static;
 
 use commands::{rsync, ssh};
 use config::Config;
-use fern;
 use log::{error, info};
 use std::io;
 use std::path::PathBuf;

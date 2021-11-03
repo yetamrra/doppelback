@@ -58,7 +58,7 @@ impl BackupHost {
         // serde_yaml parses empty string values as ~.  Wrap this up in a function
         // so callers don't need to know that.  Also don't allow root, since
         // doppelback is meant to use sudo to gain root as needed.
-        self.user.len() > 0 && self.user != "~" && self.user != "root"
+        !self.user.is_empty() && self.user != "~" && self.user != "root"
     }
 }
 
