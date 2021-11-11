@@ -4,6 +4,7 @@
 mod commands;
 mod config;
 mod doppelback_error;
+mod rsync_util;
 
 #[cfg(test)]
 #[macro_use(lazy_static)]

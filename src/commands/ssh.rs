@@ -1,7 +1,8 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use log::{error, info, warn};
+use crate::rsync_util;
+use log::{error, info};
 use pathsearch::find_executable_in_path;
 use std::ffi::OsString;
 use std::io::{Error, ErrorKind};
@@ -28,14 +29,27 @@ impl SshCmd {
     }
 
     fn get_command(self) -> Result<Vec<OsString>, Error> {
-        let args: Vec<&str> = self.original_cmd.split_ascii_whitespace().collect();
+        let mut args: Vec<&str> = self.original_cmd.split_ascii_whitespace().collect();
         if args.is_empty() {
             error!("Missing arguments to ssh subcommand");
             return Err(Error::new(ErrorKind::InvalidInput, "Missing arguments"));
         }
 
         match args[0] {
-            "rsync" => filter_rsync(args),
+            "rsync" => {
+                let rsync = find_executable_in_path("rsync").ok_or_else(|| {
+                    Error::new(ErrorKind::NotFound, "Couldn't find rsync in PATH")
+                })?;
+                let rsync = rsync.into_os_string().into_string().map_err(|_| {
+                    Error::new(
+                        ErrorKind::InvalidInput,
+                        "rsync path contains invalid characters.",
+                    )
+                })?;
+                args.splice(..1, vec![rsync.as_str()]);
+
+                rsync_util::filter_args(&args)
+            }
 
             _ => {
                 return Err(Error::new(
@@ -45,50 +59,6 @@ impl SshCmd {
             }
         }
     }
-}
-
-fn filter_rsync(args: Vec<&str>) -> Result<Vec<OsString>, Error> {
-    let mut command = Vec::new();
-
-    if let Some(rsync) = find_executable_in_path("rsync") {
-        command.push(rsync.into_os_string());
-    } else {
-        return Err(Error::new(
-            ErrorKind::NotFound,
-            "Couldn't find rsync in PATH",
-        ));
-    }
-
-    if args.len() < 6 {
-        error!("Need at least 6 arguments to rsync");
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Not enough rsync arguments",
-        ));
-    }
-    if args[1] != "--server" {
-        error!("First rsync argument must be --server");
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Unexpected rsync argument",
-        ));
-    }
-    if args[2] != "--sender" {
-        error!("Second rsync argument must be --sender");
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Unexpected rsync argument",
-        ));
-    }
-    for &arg in &args[1..] {
-        if arg == "--remove-sent-files" || arg == "--remove-source-files" {
-            warn!("Removed unsafe rsync argument {}", arg);
-            continue;
-        }
-        command.push(arg.into());
-    }
-
-    Ok(command)
 }
 
 #[cfg(test)]
@@ -200,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_rsync_removes_dangerous() {
+    fn dangerous_rsync_args_are_filtered() {
         let rsync = FakeCommand::new("rsync").unwrap();
 
         let cmd = SshCmd {
