@@ -11,7 +11,7 @@ mod rsync_util;
 extern crate lazy_static;
 
 use commands::{rsync, ssh, sudo};
-use config::Config;
+use config::{BackupHost, Config};
 use log::error;
 use std::io;
 use std::path::PathBuf;
@@ -31,6 +31,9 @@ struct CliArgs {
 
     #[structopt(short, long, parse(from_os_str))]
     config: Option<PathBuf>,
+
+    #[structopt(long)]
+    host: Option<String>,
 
     #[structopt(subcommand)]
     cmd: Command,
@@ -136,6 +139,17 @@ fn main() {
         }),
 
         None => Config::default(),
+    };
+
+    // If host was passed, make sure it can be found in the config before continuing.  This way
+    // commands don't have to handle a missing host when they expect one.
+    let host_config: BackupHost = match args.host {
+        Some(host) => config.hosts.get(&host).cloned().unwrap_or_else(|| {
+            error!("Host config for {} not found in config file", host);
+            process::exit(1);
+        }),
+
+        None => BackupHost::default(),
     };
 
     match args.cmd {

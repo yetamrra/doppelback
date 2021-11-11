@@ -14,14 +14,14 @@ pub struct Config {
     pub hosts: HashMap<String, BackupHost>,
 }
 
-#[derive(Default, Deserialize, Debug)]
+#[derive(Clone, Default, Deserialize, Debug)]
 pub struct BackupHost {
     pub user: String,
     pub key: PathBuf,
     pub sources: Vec<BackupSource>,
 }
 
-#[derive(Default, Deserialize, Debug)]
+#[derive(Clone, Default, Deserialize, Debug)]
 pub struct BackupSource {
     pub path: PathBuf,
     pub root: bool,
