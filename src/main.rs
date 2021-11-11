@@ -10,9 +10,9 @@ mod rsync_util;
 #[macro_use(lazy_static)]
 extern crate lazy_static;
 
-use commands::{rsync, ssh};
+use commands::{rsync, ssh, sudo};
 use config::Config;
-use log::{error, info};
+use log::error;
 use std::io;
 use std::path::PathBuf;
 use std::process;
@@ -53,19 +53,22 @@ enum Command {
     /// logs an error and quits without running the command.
     Ssh(ssh::SshCmd),
 
-    /// Sudo wrapper that allows doppelback to be run under sudo without giving permission
-    /// to run arbitrary commands.  Only approved commands and arguments will be run in sudo
-    /// mode.  This is mainly meant to be run internally as `sudo doppelback sudo ...`.
-    Sudo(SudoCmd),
+    /// Internal wrapper that allows doppelback to be run from sudo.
+    ///
+    /// When invoked as `doppelback sudo`, doppelback assumes it is already running as root.  It
+    /// checks the real command passed in arguments after --.  If the command and its arguments are
+    /// approved, doppelback attempts to drop whichever privileges should not be needed and runs
+    /// the final command.  If the command is not approved or the arguments don't match the
+    /// expected patterns, doppelback logs an error and quits without running the command.
+    ///
+    /// This mode allows doppelback to be run under sudo without giving permission to run arbitrary
+    /// commands.  Aside from simplifying the setup of the required sudoers entry, this also allows
+    /// more detailed verification of commands to be run.  This command  is mainly meant to be run
+    /// internally as `sudo doppelback sudo -- ...`.
+    Sudo(sudo::SudoCmd),
 
     /// Run rsync for a single backup source.
     Rsync(rsync::RsyncCmd),
-}
-
-#[derive(Debug, StructOpt)]
-struct SudoCmd {
-    #[structopt(last = true)]
-    args: Vec<String>,
 }
 
 fn init_logging(verbose: bool, log: Option<PathBuf>, cmd: &Command) -> Result<(), fern::InitError> {
@@ -75,7 +78,7 @@ fn init_logging(verbose: bool, log: Option<PathBuf>, cmd: &Command) -> Result<()
         log::LevelFilter::Info
     };
     let console_level = match cmd {
-        Command::Ssh(_) => log::LevelFilter::Off,
+        Command::Ssh(_) | Command::Sudo(_) => log::LevelFilter::Off,
         _ => file_level,
     };
     let logging = fern::Dispatch::new().level(file_level);
@@ -144,7 +147,10 @@ fn main() {
         }
 
         Command::Sudo(sudo) => {
-            info!("sudo args={:?}", sudo.args);
+            if let Err(e) = sudo.exec() {
+                error!("sudo exec failed: {}", e);
+                process::exit(1);
+            }
         }
 
         // Runs all the checks on the config file and prints the results.  These aren't run every

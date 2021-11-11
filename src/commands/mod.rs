@@ -3,3 +3,4 @@
 
 pub mod rsync;
 pub mod ssh;
+pub mod sudo;
