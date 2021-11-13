@@ -57,6 +57,7 @@ impl RsyncCmd {
                     }
                 })
                 .format(" ")
+                .to_string()
         );
         if dry_run {
             return Ok(());
