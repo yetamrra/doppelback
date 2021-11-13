@@ -1,6 +1,7 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+mod args;
 mod commands;
 mod config;
 mod doppelback_error;
@@ -10,69 +11,13 @@ mod rsync_util;
 #[macro_use(lazy_static)]
 extern crate lazy_static;
 
-use commands::{rsync, ssh, sudo};
+use args::Command;
 use config::{BackupHost, Config};
 use log::error;
 use std::io;
 use std::path::PathBuf;
 use std::process;
 use structopt::StructOpt;
-
-#[derive(Debug, StructOpt)]
-struct CliArgs {
-    #[structopt(short, long)]
-    verbose: bool,
-
-    #[structopt(short = "n", long)]
-    dry_run: bool,
-
-    #[structopt(short = "l", long)]
-    log: Option<PathBuf>,
-
-    #[structopt(short, long, parse(from_os_str))]
-    config: Option<PathBuf>,
-
-    #[structopt(long)]
-    host: Option<String>,
-
-    #[structopt(subcommand)]
-    cmd: Command,
-}
-
-#[derive(Debug, StructOpt)]
-enum Command {
-    /// Parse the config, check if contents are valid, and print the results.
-    ///
-    /// The config file is always parsed at startup, but the contents are only checked for validity
-    /// as needed by each subcommand.  This command runs all the checks to reduce the chances of
-    /// surprises later.
-    ConfigTest,
-
-    /// Internal wrapper for forced ssh commands.
-    ///
-    /// When invoked as `doppelback ssh`, doppelback parses the real command out of
-    /// SSH_ORIGINAL_COMMAND and runs it if the command and arguments are recognized.  If the
-    /// command is not recognized or its arguments do not match the expected patterns, doppelback
-    /// logs an error and quits without running the command.
-    Ssh(ssh::SshCmd),
-
-    /// Internal wrapper that allows doppelback to be run from sudo.
-    ///
-    /// When invoked as `doppelback sudo`, doppelback assumes it is already running as root.  It
-    /// checks the real command passed in arguments after --.  If the command and its arguments are
-    /// approved, doppelback attempts to drop whichever privileges should not be needed and runs
-    /// the final command.  If the command is not approved or the arguments don't match the
-    /// expected patterns, doppelback logs an error and quits without running the command.
-    ///
-    /// This mode allows doppelback to be run under sudo without giving permission to run arbitrary
-    /// commands.  Aside from simplifying the setup of the required sudoers entry, this also allows
-    /// more detailed verification of commands to be run.  This command  is mainly meant to be run
-    /// internally as `sudo doppelback sudo -- ...`.
-    Sudo(sudo::SudoCmd),
-
-    /// Run rsync for a single backup source.
-    Rsync(rsync::RsyncCmd),
-}
 
 fn init_logging(verbose: bool, log: Option<PathBuf>, cmd: &Command) -> Result<(), fern::InitError> {
     let file_level = if verbose {
@@ -118,9 +63,11 @@ fn init_logging(verbose: bool, log: Option<PathBuf>, cmd: &Command) -> Result<()
 }
 
 fn main() {
-    let args = CliArgs::from_args();
+    let full_args = args::CliArgs::from_args();
+    let args = full_args.args;
+    let cmd = full_args.cmd;
 
-    init_logging(args.verbose, args.log, &args.cmd).unwrap_or_else(|e| {
+    init_logging(args.verbose, args.log.clone(), &cmd).unwrap_or_else(|e| {
         eprintln!("Failed to set up logging: {}", e);
         process::exit(1);
     });
@@ -128,8 +75,8 @@ fn main() {
     // If a config file was passed in, parse it before worrying about whether it's needed.  This
     // ensures that the config is valid YAML.  Each specific subcommand will do further checks on
     // the contents if needed.
-    let config: Config = match args.config {
-        Some(config_path) => Config::load(&config_path).unwrap_or_else(|e| {
+    let config: Config = match &args.config {
+        Some(config_path) => Config::load(config_path).unwrap_or_else(|e| {
             error!(
                 "Failed to load config file {}: {}",
                 config_path.display(),
@@ -143,8 +90,8 @@ fn main() {
 
     // If host was passed, make sure it can be found in the config before continuing.  This way
     // commands don't have to handle a missing host when they expect one.
-    let host_config: BackupHost = match args.host {
-        Some(host) => config.hosts.get(&host).cloned().unwrap_or_else(|| {
+    let host_config: BackupHost = match &args.host {
+        Some(host) => config.hosts.get(host).cloned().unwrap_or_else(|| {
             error!("Host config for {} not found in config file", host);
             process::exit(1);
         }),
@@ -152,7 +99,7 @@ fn main() {
         None => BackupHost::default(),
     };
 
-    match args.cmd {
+    match &cmd {
         Command::Ssh(ssh) => {
             if let Err(e) = ssh.exec_original() {
                 error!("ssh exec failed: {}", e);

@@ -17,7 +17,7 @@ pub struct SshCmd {
 }
 
 impl SshCmd {
-    pub fn exec_original(self) -> Result<(), Error> {
+    pub fn exec_original(&self) -> Result<(), Error> {
         info!("ssh cmd=<{}>", self.original_cmd);
 
         let command = self.get_command()?;
@@ -28,7 +28,7 @@ impl SshCmd {
             .exec())
     }
 
-    fn get_command(self) -> Result<Vec<OsString>, Error> {
+    fn get_command(&self) -> Result<Vec<OsString>, Error> {
         let mut args: Vec<&str> = self.original_cmd.split_ascii_whitespace().collect();
         if args.is_empty() {
             error!("Missing arguments to ssh subcommand");

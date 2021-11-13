@@ -18,7 +18,7 @@ pub struct SudoCmd {
 }
 
 impl SudoCmd {
-    pub fn exec(self) -> Result<(), DoppelbackError> {
+    pub fn exec(&self) -> Result<(), DoppelbackError> {
         info!("sudo cmd=<{:?}>", self.args);
 
         let command = self.get_command()?;
@@ -31,7 +31,7 @@ impl SudoCmd {
         ))
     }
 
-    fn get_command(self) -> Result<Vec<OsString>, DoppelbackError> {
+    fn get_command(&self) -> Result<Vec<OsString>, DoppelbackError> {
         if self.args.is_empty() {
             error!("Missing arguments to sudo subcommand");
             return Err(DoppelbackError::IoError(Error::new(

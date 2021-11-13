@@ -25,7 +25,7 @@ pub struct RsyncCmd {
 }
 
 impl RsyncCmd {
-    pub fn run_rsync(self, config: &config::Config, dry_run: bool) -> Result<(), DoppelbackError> {
+    pub fn run_rsync(&self, config: &config::Config, dry_run: bool) -> Result<(), DoppelbackError> {
         debug!("rsync host=<{}> path=<{}>", self.host, self.source,);
 
         let host_config = self.check_config(config)?;
@@ -136,7 +136,7 @@ impl RsyncCmd {
     }
 
     fn get_command<P1: AsRef<Path>, P2: AsRef<Path>>(
-        self,
+        &self,
         rsync: PathBuf,
         user: &str,
         ssh_key: P1,
