@@ -14,7 +14,9 @@ extern crate lazy_static;
 use args::Command;
 use config::{BackupHost, Config};
 use log::error;
+use std::fs;
 use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process;
 use structopt::StructOpt;
@@ -44,6 +46,18 @@ fn init_logging(verbose: bool, log: Option<PathBuf>, cmd: &Command) -> Result<()
 
     let mut file_log = fern::Dispatch::new();
     if let Some(log) = log {
+        if !log.is_absolute() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--log must be an absolute path",
+            )
+            .into());
+        }
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(log)?;
         file_log = file_log
             .format(|out, message, record| {
                 out.finish(format_args!(
@@ -54,7 +68,7 @@ fn init_logging(verbose: bool, log: Option<PathBuf>, cmd: &Command) -> Result<()
                     message
                 ))
             })
-            .chain(fern::log_file(log)?);
+            .chain(file);
     }
 
     logging.chain(file_log).chain(stdout_log).apply()?;
