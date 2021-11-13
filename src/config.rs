@@ -60,6 +60,15 @@ impl BackupHost {
         // doppelback is meant to use sudo to gain root as needed.
         !self.user.is_empty() && self.user != "~" && self.user != "root"
     }
+
+    pub fn get_source<P: AsRef<Path>>(&self, path: P) -> Option<&BackupSource> {
+        for src in self.sources.iter() {
+            if src.path == path.as_ref() {
+                return Some(src);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]

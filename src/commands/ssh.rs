@@ -1,12 +1,15 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+use crate::args::GlobalArgs;
+use crate::config::BackupHost;
 use crate::rsync_util;
 use log::{error, info};
 use pathsearch::find_executable_in_path;
 use std::ffi::OsString;
 use std::io::{Error, ErrorKind};
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process;
 use structopt::StructOpt;
 
@@ -17,15 +20,48 @@ pub struct SshCmd {
 }
 
 impl SshCmd {
-    pub fn exec_original(&self) -> Result<(), Error> {
+    pub fn exec_original(
+        &self,
+        args: &GlobalArgs,
+        host_config: &BackupHost,
+        argv0: OsString,
+    ) -> Result<(), Error> {
         info!("ssh cmd=<{}>", self.original_cmd);
 
-        let command = self.get_command()?;
+        let mut command = self.get_command()?;
+        let path = command.last().ok_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "Path not found in SSH_ORIGINAL_COMMAND",
+            )
+        })?;
+        let path = PathBuf::from(path).canonicalize().map_err(|e| {
+            error!("Failed to canonicalize path {:?}: {}", path, e);
+            e
+        })?;
+        info!("Looking for {} in host backup config", path.display());
+        let source_config = host_config
+            .get_source(path)
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "Backup source not found in config"))?;
 
-        Err(process::Command::new(&command[0])
-            .args(&command[1..])
-            .current_dir("/")
-            .exec())
+        if source_config.root {
+            let sudo = find_executable_in_path("sudo")
+                .ok_or_else(|| Error::new(ErrorKind::NotFound, "Couldn't find sudo in PATH"))?;
+            let mut sudo_args = vec![OsString::from(sudo), OsString::from("--"), argv0];
+            sudo_args.append(&mut args.as_cli_args());
+            sudo_args.append(&mut vec![OsString::from("sudo"), OsString::from("--")]);
+            command.splice(..0, sudo_args);
+        }
+
+        info!("Running final command: {:?}", &command);
+        if args.dry_run {
+            Ok(())
+        } else {
+            Err(process::Command::new(&command[0])
+                .args(&command[1..])
+                .current_dir("/")
+                .exec())
+        }
     }
 
     fn get_command(&self) -> Result<Vec<OsString>, Error> {

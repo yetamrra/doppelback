@@ -14,6 +14,7 @@ extern crate lazy_static;
 use args::Command;
 use config::{BackupHost, Config};
 use log::error;
+use std::env;
 use std::fs;
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
@@ -110,12 +111,23 @@ fn main() {
             process::exit(1);
         }),
 
-        None => BackupHost::default(),
+        None => match &cmd {
+            Command::Ssh(_) | Command::Sudo(_) => {
+                error!("--host is required for {}", cmd);
+                process::exit(1);
+            }
+
+            _ => BackupHost::default(),
+        },
     };
 
     match &cmd {
         Command::Ssh(ssh) => {
-            if let Err(e) = ssh.exec_original() {
+            let this_exe = env::current_exe().unwrap_or_else(|e| {
+                error!("Unable to get path to running program: {}", e);
+                process::exit(1);
+            });
+            if let Err(e) = ssh.exec_original(&args, &host_config, this_exe.into_os_string()) {
                 error!("ssh exec failed: {}", e);
                 process::exit(1);
             }
