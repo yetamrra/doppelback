@@ -17,6 +17,7 @@ pub struct Config {
 #[derive(Clone, Default, Deserialize, Debug)]
 pub struct BackupHost {
     pub user: String,
+    pub port: Option<u16>,
     pub key: PathBuf,
     pub sources: Vec<BackupSource>,
 }

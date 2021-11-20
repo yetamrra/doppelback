@@ -154,7 +154,12 @@ fn main() {
                 if !host_config.is_user_valid() {
                     println!("Invalid user for {}", host);
                 } else {
-                    println!("Backups for {}@{}:", host_config.user, host);
+                    let port_str = if let Some(p) = host_config.port {
+                        format!(" (port {})", p)
+                    } else {
+                        "".to_string()
+                    };
+                    println!("Backups for {}@{}{}:", host_config.user, host, port_str);
                     for source in &host_config.sources {
                         println!("  {}", source.path.display());
                     }

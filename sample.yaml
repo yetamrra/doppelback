@@ -9,6 +9,10 @@ hosts:
     # `user` is the user on the remote machine.
     user: backup
 
+    # `port` is the remote port to use for ssh connections.  Defaults to
+    # 22 if omitted.
+    port: 2234
+
     # `key` is the ssh key used to connect to this host.  It can be an
     # absolute path or the name of a file under ~/.ssh.
     key: id_ecdsa_host1_backup
