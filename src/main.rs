@@ -10,10 +10,11 @@ mod rsync_util;
 #[cfg(test)]
 #[macro_use(lazy_static)]
 extern crate lazy_static;
+extern crate utime;
 
 use args::Command;
 use config::{BackupHost, Config};
-use log::error;
+use log::{error, info};
 use std::env;
 use std::fs;
 use std::io;
@@ -165,6 +166,20 @@ fn main() {
             if let Err(e) = rsync.run_rsync(&config, args.dry_run) {
                 error!("rsync failed: {}", e);
                 process::exit(1);
+            }
+        }
+
+        Command::MakeSnapshot(snapshot) => {
+            if let Err(e) = config.snapshot_dir_valid() {
+                println!("Snapshot dir is invalid: {}", e);
+                process::exit(1);
+            }
+            match snapshot.make_snapshot(&config.snapshots, args.dry_run) {
+                Ok(name) => info!("New snapshot dir: {}", name),
+                Err(e) => {
+                    error!("failed to create snapshot: {}", e);
+                    process::exit(1);
+                }
             }
         }
     }

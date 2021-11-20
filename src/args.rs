@@ -1,7 +1,7 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use crate::commands::{rsync, ssh, sudo};
+use crate::commands::{rsync, snapshots, ssh, sudo};
 
 use std::env;
 use std::ffi::OsString;
@@ -105,15 +105,19 @@ pub enum Command {
 
     /// Run rsync for a single backup source.
     Rsync(rsync::RsyncCmd),
+
+    /// Make a new dated snapshot of the live snapshots subdirectory.
+    MakeSnapshot(snapshots::MakeSnapshotCmd),
 }
 
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
+            Command::ConfigTest => "config-test",
+            Command::MakeSnapshot(_) => "make-snapshot",
             Command::Rsync(_) => "rsync",
             Command::Ssh(_) => "ssh",
             Command::Sudo(_) => "sudo",
-            Command::ConfigTest => "config-test",
         };
         write!(f, "{}", name)
     }
