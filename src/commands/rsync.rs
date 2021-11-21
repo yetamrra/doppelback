@@ -32,8 +32,8 @@ impl RsyncCmd {
 
         let home_dir = env::var_os("HOME")
             .ok_or_else(|| DoppelbackError::MissingDir(PathBuf::from("HOME")))?;
-        let ssh_key = self
-            .find_ssh_key(&host_config.key, home_dir)
+        let ssh_key = host_config
+            .find_ssh_key(home_dir)
             .ok_or_else(|| DoppelbackError::InvalidPath(PathBuf::from(&host_config.key)))?;
 
         let rsync = find_executable_in_path("rsync").ok_or_else(|| {
@@ -104,26 +104,6 @@ impl RsyncCmd {
         }
 
         Ok(host)
-    }
-
-    fn find_ssh_key<P1: AsRef<Path>, P2: AsRef<Path>>(
-        &self,
-        key_name: P1,
-        home_dir: P2,
-    ) -> Option<PathBuf> {
-        let key_path = if key_name.as_ref().is_absolute() {
-            key_name.as_ref().to_path_buf()
-        } else {
-            let mut path = home_dir.as_ref().join(".ssh");
-            path.push(key_name);
-            path
-        };
-
-        if key_path.is_file() {
-            Some(key_path)
-        } else {
-            None
-        }
     }
 
     fn setup_dest_dir<P: AsRef<Path>>(&self, snapshots: P) -> Result<PathBuf, DoppelbackError> {
@@ -224,44 +204,6 @@ mod tests {
     #[test]
     fn safe_name_strips_slashes() {
         assert_eq!(get_safe_name("//home/backup/dir//"), "home_backup_dir");
-    }
-
-    #[test]
-    fn find_ssh_key_absolute_path() {
-        let dir = TempDir::new("sshkey").unwrap();
-        let keyfile = dir.path().join("keyfile");
-        let _ = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&keyfile);
-
-        let rsync = RsyncCmd {
-            host: String::from("example.com"),
-            source: String::from("/tmp"),
-        };
-        assert_eq!(
-            rsync.find_ssh_key(&keyfile, PathBuf::from("/nosuch")),
-            Some(keyfile)
-        );
-    }
-
-    #[test]
-    fn find_ssh_key_in_home() {
-        let dir = TempDir::new("sshkey").unwrap();
-        let ssh_dir = dir.path().join(".ssh");
-        let _ = fs::create_dir(&ssh_dir);
-
-        let keyfile = ssh_dir.join("keyfile");
-        let _ = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(&keyfile);
-
-        let rsync = RsyncCmd {
-            host: String::from("example.com"),
-            source: String::from("/tmp"),
-        };
-        assert_eq!(rsync.find_ssh_key("keyfile", dir.path()), Some(keyfile));
     }
 
     #[test]

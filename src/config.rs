@@ -62,6 +62,26 @@ impl BackupHost {
         !self.user.is_empty() && self.user != "~" && self.user != "root"
     }
 
+    pub fn find_ssh_key<P: AsRef<Path>>(&self, home_dir: P) -> Option<PathBuf> {
+        if self.key.as_os_str().is_empty() || self.key == Path::new("~") {
+            return None;
+        }
+
+        let key_path = if self.key.is_absolute() {
+            self.key.to_path_buf()
+        } else {
+            let mut path = home_dir.as_ref().join(".ssh");
+            path.push(&self.key);
+            path
+        };
+
+        if key_path.is_file() {
+            Some(key_path)
+        } else {
+            None
+        }
+    }
+
     pub fn get_source<P: AsRef<Path>>(&self, path: P) -> Option<&BackupSource> {
         for src in self.sources.iter() {
             if src.path == path.as_ref() {
@@ -164,5 +184,42 @@ mod tests {
             ..BackupHost::default()
         };
         assert!(cfg.is_user_valid());
+    }
+
+    #[test]
+    fn find_ssh_key_absolute_path() {
+        let dir = TempDir::new("sshkey").unwrap();
+        let keyfile = dir.path().join("keyfile");
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&keyfile);
+
+        let cfg = BackupHost {
+            key: keyfile.clone(),
+            ..BackupHost::default()
+        };
+
+        assert_eq!(cfg.find_ssh_key(PathBuf::from("/nosuch")), Some(keyfile));
+    }
+
+    #[test]
+    fn find_ssh_key_in_home() {
+        let dir = TempDir::new("sshkey").unwrap();
+        let ssh_dir = dir.path().join(".ssh");
+        let _ = fs::create_dir(&ssh_dir);
+
+        let keyfile = ssh_dir.join("keyfile");
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&keyfile);
+
+        let cfg = BackupHost {
+            key: PathBuf::from("keyfile"),
+            ..BackupHost::default()
+        };
+
+        assert_eq!(cfg.find_ssh_key(dir.path()), Some(keyfile));
     }
 }

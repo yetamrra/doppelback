@@ -145,6 +145,7 @@ fn main() {
             }
             println!("Saving snapshots into {}", config.snapshots.display());
 
+            let home_dir = env::var_os("HOME").expect("HOME missing in environment");
             for (host, host_config) in &config.hosts {
                 if !host_config.is_user_valid() {
                     println!("Invalid user for {}", host);
@@ -154,7 +155,24 @@ fn main() {
                     } else {
                         "".to_string()
                     };
-                    println!("Backups for {}@{}{}:", host_config.user, host, port_str);
+                    let sshkey = match host_config.find_ssh_key(&home_dir) {
+                        Some(key) => key,
+                        None => {
+                            println!(
+                                "ssh key {} for {} not found",
+                                host_config.key.display(),
+                                host
+                            );
+                            continue;
+                        }
+                    };
+                    println!(
+                        "Backups for {}@{}{} using ssh key {}:",
+                        host_config.user,
+                        host,
+                        port_str,
+                        sshkey.display()
+                    );
                     for source in &host_config.sources {
                         println!("  {}", source.path.display());
                     }
