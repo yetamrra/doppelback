@@ -189,7 +189,7 @@ fn main() {
 
         Command::MakeSnapshot(snapshot) => {
             if let Err(e) = config.snapshot_dir_valid() {
-                println!("Snapshot dir is invalid: {}", e);
+                error!("Snapshot dir is invalid: {}", e);
                 process::exit(1);
             }
             match snapshot.make_snapshot(&config.snapshots, args.dry_run) {
