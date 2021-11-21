@@ -147,36 +147,40 @@ fn main() {
             println!("Saving snapshots into {}", config.snapshots.display());
 
             let home_dir = env::var_os("HOME").expect("HOME missing in environment");
+            let mut failed = HashMap::new();
             for (host, host_config) in &config.hosts {
+                println!("Checking {}", host);
                 if !host_config.is_user_valid() {
-                    println!("Invalid user for {}", host);
+                    println!("  Invalid user for {}", host);
+                    failed.insert(host, format!("Invalid user {}", host_config.user));
+                    continue;
+                }
+
+                if let Some(sshkey) = host_config.find_ssh_key(&home_dir) {
+                    println!("  Using ssh key {}", sshkey.display());
                 } else {
-                    let port_str = if let Some(p) = host_config.port {
-                        format!(" (port {})", p)
-                    } else {
-                        "".to_string()
-                    };
-                    let sshkey = match host_config.find_ssh_key(&home_dir) {
-                        Some(key) => key,
-                        None => {
-                            println!(
-                                "ssh key {} for {} not found",
-                                host_config.key.display(),
-                                host
-                            );
-                            continue;
-                        }
-                    };
-                    println!(
-                        "Backups for {}@{}{} using ssh key {}:",
-                        host_config.user,
-                        host,
-                        port_str,
-                        sshkey.display()
-                    );
-                    for source in &host_config.sources {
-                        println!("  {}", source.path.display());
-                    }
+                    let reason = format!("ssh key {} not found", host_config.key.display());
+                    println!("  {}", reason);
+                    failed.insert(host, reason);
+                    continue;
+                }
+                let port_str = if let Some(p) = host_config.port {
+                    format!(" (port {})", p)
+                } else {
+                    "".to_string()
+                };
+                println!(
+                    "  Backup sources for {}@{}{}:",
+                    host_config.user, host, port_str,
+                );
+                for source in &host_config.sources {
+                    println!("    {}", source.path.display());
+                }
+            }
+            if !failed.is_empty() {
+                println!("\nUnusable backups:");
+                for (host, reason) in failed.iter() {
+                    println!("  {}: {}", host, reason);
                 }
             }
         }
