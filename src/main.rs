@@ -88,21 +88,16 @@ fn main() {
         process::exit(1);
     });
 
-    // If a config file was passed in, parse it before worrying about whether it's needed.  This
-    // ensures that the config is valid YAML.  Each specific subcommand will do further checks on
-    // the contents if needed.
-    let config: Config = match &args.config {
-        Some(config_path) => Config::load(config_path).unwrap_or_else(|e| {
-            error!(
-                "Failed to load config file {}: {}",
-                config_path.display(),
-                e
-            );
-            process::exit(1);
-        }),
-
-        None => Config::default(),
-    };
+    // Parse the config before worrying about which parts are needed.  This ensures that the config
+    // is valid YAML.  Each specific subcommand will do further checks on the contents as needed.
+    let config = Config::load(&args.config).unwrap_or_else(|e| {
+        error!(
+            "Failed to load config file {}: {}",
+            args.config.display(),
+            e
+        );
+        process::exit(1);
+    });
 
     // If host was passed, make sure it can be found in the config before continuing.  This way
     // commands don't have to handle a missing host when they expect one.

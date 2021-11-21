@@ -30,7 +30,7 @@ pub struct GlobalArgs {
     pub log: Option<PathBuf>,
 
     #[structopt(short, long, parse(from_os_str))]
-    pub config: Option<PathBuf>,
+    pub config: PathBuf,
 
     #[structopt(long)]
     pub host: Option<String>,
@@ -54,11 +54,11 @@ impl GlobalArgs {
             }));
             args.push(log_arg);
         }
-        if let Some(config) = &self.config {
+        if !self.config.as_os_str().is_empty() {
             let mut cfg_arg = OsString::from("--config=");
-            cfg_arg.push(config.canonicalize().unwrap_or_else(|_| {
+            cfg_arg.push(self.config.canonicalize().unwrap_or_else(|_| {
                 let mut cfg_abs = env::current_dir().unwrap();
-                cfg_abs.push(&config);
+                cfg_abs.push(&self.config);
                 cfg_abs
             }));
             args.push(cfg_arg);
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn config_is_expanded() {
         let args = GlobalArgs {
-            config: Some(PathBuf::from("config.yaml")),
+            config: PathBuf::from("config.yaml"),
             ..GlobalArgs::default()
         };
         let cwd = env::current_dir().unwrap();
