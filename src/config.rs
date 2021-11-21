@@ -4,6 +4,7 @@
 use crate::doppelback_error::DoppelbackError;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -93,6 +94,32 @@ impl BackupHost {
             }
         }
         None
+    }
+
+    pub fn ssh_args<P1: AsRef<Path>, P2: AsRef<Path>>(
+        &self,
+        ssh: P1,
+        home: P2,
+    ) -> Option<Vec<OsString>> {
+        let key = self.find_ssh_key(home)?;
+
+        let mut args = vec![
+            ssh.as_ref().as_os_str().to_os_string(),
+            OsString::from("-a"),
+            OsString::from("-x"),
+            OsString::from("-oIdentitiesOnly=true"),
+            OsString::from("-i"),
+            key.into_os_string(),
+        ];
+
+        if let Some(port) = self.port {
+            if port > 0 {
+                args.push(OsString::from("-p"));
+                args.push(OsString::from(port.to_string()));
+            }
+        }
+
+        Some(args)
     }
 }
 
@@ -255,6 +282,97 @@ mod tests {
         };
 
         assert_eq!(cfg.find_ssh_key(dir.path()), Some(keyfile));
+    }
+
+    #[test]
+    fn ssh_args_no_empty_key() {
+        let cfg = BackupHost::default();
+        assert!(cfg.ssh_args("/usr/bin/ssh", "/tmp").is_none());
+    }
+
+    #[test]
+    fn ssh_args_missing_key() {
+        let cfg = BackupHost {
+            key: PathBuf::from("/nosuch"),
+            ..BackupHost::default()
+        };
+        assert!(cfg.ssh_args("/usr/bin/ssh", "/tmp").is_none());
+    }
+
+    #[test]
+    fn ssh_args_no_port() {
+        let dir = TempDir::new("sshkey").unwrap();
+        let keyfile = dir.path().join("keyfile");
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&keyfile);
+
+        let cfg = BackupHost {
+            key: keyfile.clone(),
+            ..BackupHost::default()
+        };
+        let expected = vec![
+            OsString::from("/opt/bin/ssh"),
+            OsString::from("-a"),
+            OsString::from("-x"),
+            OsString::from("-oIdentitiesOnly=true"),
+            OsString::from("-i"),
+            keyfile.as_os_str().to_os_string(),
+        ];
+        assert_eq!(cfg.ssh_args("/opt/bin/ssh", "/tmp").unwrap(), expected);
+    }
+
+    #[test]
+    fn ssh_args_zero_port() {
+        let dir = TempDir::new("sshkey").unwrap();
+        let keyfile = dir.path().join("keyfile");
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&keyfile);
+
+        let cfg = BackupHost {
+            key: keyfile.clone(),
+            port: Some(0),
+            ..BackupHost::default()
+        };
+        let expected = vec![
+            OsString::from("/opt/bin/ssh"),
+            OsString::from("-a"),
+            OsString::from("-x"),
+            OsString::from("-oIdentitiesOnly=true"),
+            OsString::from("-i"),
+            keyfile.as_os_str().to_os_string(),
+        ];
+        assert_eq!(cfg.ssh_args("/opt/bin/ssh", "/tmp").unwrap(), expected);
+    }
+
+    #[test]
+    fn ssh_args_nonzero_port() {
+        let dir = TempDir::new("sshkey").unwrap();
+        let keyfile = dir.path().join("keyfile");
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&keyfile);
+
+        let cfg = BackupHost {
+            key: keyfile.clone(),
+            port: Some(2221),
+            ..BackupHost::default()
+        };
+        let expected = vec![
+            OsString::from("/opt/bin/ssh"),
+            OsString::from("-a"),
+            OsString::from("-x"),
+            OsString::from("-oIdentitiesOnly=true"),
+            OsString::from("-i"),
+            keyfile.as_os_str().to_os_string(),
+            OsString::from("-p"),
+            OsString::from("2221"),
+        ];
+        assert_eq!(cfg.ssh_args("/opt/bin/ssh", "/tmp").unwrap(), expected);
     }
 
     #[test]

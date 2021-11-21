@@ -39,8 +39,10 @@ impl RsyncCmd {
 
         let home_dir = env::var_os("HOME")
             .ok_or_else(|| DoppelbackError::MissingDir(PathBuf::from("HOME")))?;
-        let ssh_key = host_config
-            .find_ssh_key(home_dir)
+        let ssh = find_executable_in_path("ssh")
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Couldn't find ssh in PATH"))?;
+        let ssh_args = host_config
+            .ssh_args(ssh, home_dir)
             .ok_or_else(|| DoppelbackError::InvalidPath(PathBuf::from(&host_config.key)))?;
 
         let rsync = find_executable_in_path("rsync").ok_or_else(|| {
@@ -50,8 +52,7 @@ impl RsyncCmd {
         let dest = config::BackupDest::new(&config.snapshots, &self.host, source);
         fs::create_dir_all(dest.backup_dir())?;
 
-        let port = host_config.port.unwrap_or(0);
-        let command = self.get_command(rsync, &host_config.user, port, ssh_key, &dest)?;
+        let command = self.get_command(rsync, &host_config.user, &ssh_args, &dest)?;
 
         debug!(
             "Final rsync command: {}",
@@ -65,8 +66,7 @@ impl RsyncCmd {
                         s.to_string()
                     }
                 })
-                .format(" ")
-                .to_string()
+                .join(" ")
         );
         if dry_run {
             return Ok(());
@@ -103,27 +103,18 @@ impl RsyncCmd {
         Ok((host, source))
     }
 
-    fn get_command<P: AsRef<Path>>(
+    fn get_command(
         &self,
         rsync: PathBuf,
         user: &str,
-        port: u16,
-        ssh_key: P,
+        ssh_args: &[OsString],
         dest: &config::BackupDest,
     ) -> Result<Vec<OsString>, DoppelbackError> {
         let mut command = vec![rsync.into_os_string()];
 
         let source = format!("{}@{}:{}/", user, self.host, self.source);
-        let port_arg = if port > 0 {
-            format!(" -p {}", port)
-        } else {
-            "".to_string()
-        };
-        let ssh = format!(
-            "--rsh=ssh -a -x -oIdentitiesOnly=true -i {}{}",
-            ssh_key.as_ref().display(),
-            port_arg
-        );
+        let ssh_args = ssh_args.iter().map(|s| s.to_string_lossy()).join(" ");
+        let ssh = format!("--rsh={}", ssh_args);
 
         command.extend(
             vec![
@@ -168,7 +159,6 @@ impl RsyncCmd {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use regex::Regex;
     use tempdir::TempDir;
 
     #[test]
@@ -187,24 +177,25 @@ mod tests {
                 ..config::BackupSource::default()
             },
         );
+        let ssh_args: Vec<_> = vec!["/usr/bin/ssh", "-i", "/opt/sshkey"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+
         let command = rsync
             .get_command(
                 PathBuf::from("/opt/bin/rsync"),
                 "backupuser",
-                0,
-                "/opt/sshkey",
+                &ssh_args,
                 &dest,
             )
             .unwrap();
 
-        let ssh_arg = Regex::new(r"^--rsh=.*-i /opt/sshkey").unwrap();
         assert_eq!(command[0], "/opt/bin/rsync");
         assert!(command.contains(&OsString::from(
             "backupuser@host1.example.com:/opt/backups/"
         )));
-        assert!(command
-            .iter()
-            .any(|arg| ssh_arg.is_match(&arg.clone().into_string().unwrap())));
+        assert!(command.contains(&OsString::from("--rsh=/usr/bin/ssh -i /opt/sshkey")));
         assert_eq!(command.last().unwrap(), &dir.into_os_string());
     }
 
@@ -237,100 +228,27 @@ mod tests {
                 ..config::BackupSource::default()
             },
         );
+        let ssh_args: Vec<_> = vec!["/usr/bin/ssh", "-i", "/opt/sshkey"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+
         let command = rsync
             .get_command(
                 PathBuf::from("/opt/bin/rsync"),
                 "backupuser",
-                0,
-                "/opt/sshkey",
+                &ssh_args,
                 &dest,
             )
             .unwrap();
 
-        let ssh_arg = Regex::new(r"^--rsh=.*-i /opt/sshkey").unwrap();
         let exclude_arg = OsString::from(format!("--exclude-from={}", exclude_file.display()));
         assert_eq!(command[0], "/opt/bin/rsync");
         assert!(command.contains(&OsString::from(
             "backupuser@host1.example.com:/opt/backups/"
         )));
-        assert!(command
-            .iter()
-            .any(|arg| ssh_arg.is_match(&arg.clone().into_string().unwrap())));
+        assert!(command.contains(&OsString::from("--rsh=/usr/bin/ssh -i /opt/sshkey")));
         assert!(command.contains(&exclude_arg));
-        assert_eq!(command.last().unwrap(), &dir.into_os_string());
-    }
-
-    #[test]
-    fn get_command_no_port() {
-        let dir = PathBuf::from("/backups/snapshots/live/host1.example.com/opt_backups");
-
-        let rsync = RsyncCmd {
-            host: String::from("host1.example.com"),
-            source: String::from("/opt/backups"),
-        };
-        let dest = config::BackupDest::new(
-            "/backups/snapshots",
-            "host1.example.com",
-            &config::BackupSource {
-                path: PathBuf::from("/opt/backups"),
-                ..config::BackupSource::default()
-            },
-        );
-        let command = rsync
-            .get_command(
-                PathBuf::from("/opt/bin/rsync"),
-                "backupuser",
-                0,
-                "/opt/sshkey",
-                &dest,
-            )
-            .unwrap();
-
-        let ssh_arg = Regex::new(r"^--rsh=.*-p\b").unwrap();
-        assert_eq!(command[0], "/opt/bin/rsync");
-        assert!(command.contains(&OsString::from(
-            "backupuser@host1.example.com:/opt/backups/"
-        )));
-        assert!(command
-            .iter()
-            .all(|arg| !ssh_arg.is_match(&arg.clone().into_string().unwrap())));
-        assert_eq!(command.last().unwrap(), &dir.into_os_string());
-    }
-
-    #[test]
-    fn get_command_nonzero_port() {
-        let dir = PathBuf::from("/backups/snapshots/live/host1.example.com/opt_backups");
-
-        let rsync = RsyncCmd {
-            host: String::from("host1.example.com"),
-            source: String::from("/opt/backups"),
-        };
-        let dest = config::BackupDest::new(
-            "/backups/snapshots",
-            "host1.example.com",
-            &config::BackupSource {
-                path: PathBuf::from("/opt/backups"),
-                ..config::BackupSource::default()
-            },
-        );
-        let command = rsync
-            .get_command(
-                PathBuf::from("/opt/bin/rsync"),
-                "backupuser",
-                5555,
-                "/opt/sshkey",
-                &dest,
-            )
-            .unwrap();
-
-        let ssh_arg = Regex::new(r"^--rsh=.*-p 5555").unwrap();
-        assert_eq!(command[0], "/opt/bin/rsync");
-        assert!(command.contains(&OsString::from(
-            "backupuser@host1.example.com:/opt/backups/"
-        )));
-        assert!(command
-            .iter()
-            .any(|arg| ssh_arg.is_match(&arg.clone().into_string().unwrap())));
         assert_eq!(command.last().unwrap(), &dir.into_os_string());
     }
 }
