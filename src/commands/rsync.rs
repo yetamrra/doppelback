@@ -35,7 +35,7 @@ impl RsyncCmd {
     pub fn run_rsync(&self, config: &config::Config, dry_run: bool) -> Result<(), DoppelbackError> {
         debug!("rsync host=<{}> path=<{}>", self.host, self.source,);
 
-        let host_config = self.check_config(config)?;
+        let (host_config, source) = self.check_config(config)?;
 
         let home_dir = env::var_os("HOME")
             .ok_or_else(|| DoppelbackError::MissingDir(PathBuf::from("HOME")))?;
@@ -47,10 +47,11 @@ impl RsyncCmd {
             io::Error::new(io::ErrorKind::NotFound, "Couldn't find rsync in PATH")
         })?;
 
-        let dest = self.setup_dest_dir(&config.snapshots)?;
+        let dest = config::BackupDest::new(&config.snapshots, &self.host, source);
+        fs::create_dir_all(dest.backup_dir())?;
 
         let port = host_config.port.unwrap_or(0);
-        let command = self.get_command(rsync, &host_config.user, port, ssh_key, dest)?;
+        let command = self.get_command(rsync, &host_config.user, port, ssh_key, &dest)?;
 
         debug!(
             "Final rsync command: {}",
@@ -89,57 +90,26 @@ impl RsyncCmd {
     fn check_config<'a>(
         &self,
         config: &'a config::Config,
-    ) -> Result<&'a config::BackupHost, DoppelbackError> {
+    ) -> Result<(&'a config::BackupHost, &'a config::BackupSource), DoppelbackError> {
         config.snapshot_dir_valid()?;
 
         let host = config.hosts.get(&self.host).ok_or_else(|| {
             DoppelbackError::InvalidConfig(format!("host {} not found", self.host))
         })?;
-        let path = PathBuf::from(&self.source);
-        let mut found = false;
-        for source in host.sources.iter() {
-            if source.path == path {
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            return Err(DoppelbackError::InvalidConfig(format!(
-                "path {} not found",
-                self.source
-            )));
-        }
+        let source = host.get_source(&self.source).ok_or_else(|| {
+            DoppelbackError::InvalidConfig(format!("path {} not found", self.source))
+        })?;
 
-        Ok(host)
+        Ok((host, source))
     }
 
-    pub fn get_dest_dir<P: AsRef<Path>>(&self, snapshots: P) -> PathBuf {
-        let dest_name = get_safe_name(&self.source);
-        let mut dest_dir = snapshots.as_ref().join("live");
-        dest_dir.push(&self.host);
-        dest_dir.push(dest_name);
-        dest_dir
-    }
-
-    pub fn get_companion_file<P: AsRef<Path>>(&self, snapshots: P, name: &str) -> PathBuf {
-        let mut dest_dir = self.get_dest_dir(snapshots);
-        dest_dir.set_extension(name);
-        dest_dir
-    }
-
-    fn setup_dest_dir<P: AsRef<Path>>(&self, snapshots: P) -> Result<PathBuf, DoppelbackError> {
-        let dest_dir = self.get_dest_dir(snapshots);
-        fs::create_dir_all(&dest_dir)?;
-        Ok(dest_dir)
-    }
-
-    fn get_command<P1: AsRef<Path>, P2: AsRef<Path>>(
+    fn get_command<P: AsRef<Path>>(
         &self,
         rsync: PathBuf,
         user: &str,
         port: u16,
-        ssh_key: P1,
-        dest: P2,
+        ssh_key: P,
+        dest: &config::BackupDest,
     ) -> Result<Vec<OsString>, DoppelbackError> {
         let mut command = vec![rsync.into_os_string()];
 
@@ -181,7 +151,7 @@ impl RsyncCmd {
             .map(OsString::from),
         );
 
-        let exclude_from = dest.as_ref().with_extension("exclude");
+        let exclude_from = dest.get_companion_file("exclude");
         if exclude_from.is_file() {
             command.push(OsString::from(format!(
                 "--exclude-from={}",
@@ -189,20 +159,10 @@ impl RsyncCmd {
             )));
         }
         command.push(OsString::from(source));
-        command.push(OsString::from(dest.as_ref()));
+        command.push(OsString::from(dest.backup_dir()));
 
         Ok(command)
     }
-}
-
-fn get_safe_name(original: &str) -> String {
-    let name = original.trim_matches('/');
-
-    if name.is_empty() {
-        return "rootfs".to_string();
-    }
-
-    name.replace("/", "_")
 }
 
 #[cfg(test)]
@@ -212,17 +172,6 @@ mod tests {
     use tempdir::TempDir;
 
     #[test]
-    fn safe_name_rootfs() {
-        assert_eq!(get_safe_name("/"), "rootfs");
-        assert_eq!(get_safe_name("//"), "rootfs");
-    }
-
-    #[test]
-    fn safe_name_strips_slashes() {
-        assert_eq!(get_safe_name("//home/backup/dir//"), "home_backup_dir");
-    }
-
-    #[test]
     fn get_command_no_exclude() {
         let dir = PathBuf::from("/backups/snapshots/live/host1.example.com/opt_backups");
 
@@ -230,13 +179,21 @@ mod tests {
             host: String::from("host1.example.com"),
             source: String::from("/opt/backups"),
         };
+        let dest = config::BackupDest::new(
+            "/backups/snapshots",
+            "host1.example.com",
+            &config::BackupSource {
+                path: PathBuf::from("/opt/backups"),
+                ..config::BackupSource::default()
+            },
+        );
         let command = rsync
             .get_command(
                 PathBuf::from("/opt/bin/rsync"),
                 "backupuser",
                 0,
                 "/opt/sshkey",
-                &dir,
+                &dest,
             )
             .unwrap();
 
@@ -272,13 +229,21 @@ mod tests {
             host: String::from("host1.example.com"),
             source: String::from("/opt/backups"),
         };
+        let dest = config::BackupDest::new(
+            snapshots.path(),
+            "host1.example.com",
+            &config::BackupSource {
+                path: PathBuf::from("/opt/backups"),
+                ..config::BackupSource::default()
+            },
+        );
         let command = rsync
             .get_command(
                 PathBuf::from("/opt/bin/rsync"),
                 "backupuser",
                 0,
                 "/opt/sshkey",
-                &dir,
+                &dest,
             )
             .unwrap();
 
@@ -303,13 +268,21 @@ mod tests {
             host: String::from("host1.example.com"),
             source: String::from("/opt/backups"),
         };
+        let dest = config::BackupDest::new(
+            "/backups/snapshots",
+            "host1.example.com",
+            &config::BackupSource {
+                path: PathBuf::from("/opt/backups"),
+                ..config::BackupSource::default()
+            },
+        );
         let command = rsync
             .get_command(
                 PathBuf::from("/opt/bin/rsync"),
                 "backupuser",
                 0,
                 "/opt/sshkey",
-                &dir,
+                &dest,
             )
             .unwrap();
 
@@ -332,13 +305,21 @@ mod tests {
             host: String::from("host1.example.com"),
             source: String::from("/opt/backups"),
         };
+        let dest = config::BackupDest::new(
+            "/backups/snapshots",
+            "host1.example.com",
+            &config::BackupSource {
+                path: PathBuf::from("/opt/backups"),
+                ..config::BackupSource::default()
+            },
+        );
         let command = rsync
             .get_command(
                 PathBuf::from("/opt/bin/rsync"),
                 "backupuser",
                 5555,
                 "/opt/sshkey",
-                &dir,
+                &dest,
             )
             .unwrap();
 
@@ -351,38 +332,5 @@ mod tests {
             .iter()
             .any(|arg| ssh_arg.is_match(&arg.clone().into_string().unwrap())));
         assert_eq!(command.last().unwrap(), &dir.into_os_string());
-    }
-
-    #[test]
-    fn setup_dest_dir_nothing() {
-        let snapshots = TempDir::new("dest_dir").unwrap();
-
-        let rsync = RsyncCmd {
-            host: String::from("host"),
-            source: String::from("/backup"),
-        };
-
-        let mut dir = snapshots.path().join("live");
-        dir.push("host");
-        dir.push("backup");
-        assert_eq!(rsync.setup_dest_dir(snapshots.path()).unwrap(), dir);
-        assert!(dir.is_dir());
-    }
-
-    #[test]
-    fn setup_dest_dir_existing() {
-        let snapshots = TempDir::new("dest_dir").unwrap();
-        let mut dir = snapshots.path().join("live");
-        dir.push("host");
-        dir.push("backup");
-        let _ = fs::create_dir_all(&dir);
-
-        let rsync = RsyncCmd {
-            host: String::from("host"),
-            source: String::from("/backup"),
-        };
-
-        assert_eq!(rsync.setup_dest_dir(snapshots.path()).unwrap(), dir);
-        assert!(dir.is_dir());
     }
 }

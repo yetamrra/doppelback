@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::commands::{rsync, snapshots};
-use crate::config::Config;
+use crate::config::{BackupDest, Config};
 use crate::doppelback_error::DoppelbackError;
 use log::{error, info};
 use std::ffi::OsStr;
@@ -47,9 +47,9 @@ impl PullBackupCmd {
         let host_start = Instant::now();
         let mut errs = 0;
         for source in &host_config.sources {
-            let rsync = rsync::RsyncCmd::new(host, &source.path);
+            let dest = BackupDest::new(&config.snapshots, host, source);
 
-            let snapshot_file = rsync.get_companion_file(&config.snapshots, "snapshot");
+            let snapshot_file = dest.get_companion_file("snapshot");
             if !dry_run {
                 if let Err(e) = fs::write(&snapshot_file, &snapname) {
                     error!(
@@ -63,6 +63,7 @@ impl PullBackupCmd {
             }
 
             let source_start = Instant::now();
+            let rsync = rsync::RsyncCmd::new(host, &source.path);
             match rsync.run_rsync(config, dry_run) {
                 Ok(()) => {
                     info!(

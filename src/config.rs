@@ -28,6 +28,10 @@ pub struct BackupSource {
     pub root: bool,
 }
 
+pub struct BackupDest {
+    dest_dir: PathBuf,
+}
+
 impl Config {
     pub fn load<P: AsRef<Path>>(file: P) -> Result<Self, DoppelbackError> {
         let yaml = fs::read_to_string(file)?;
@@ -89,6 +93,36 @@ impl BackupHost {
             }
         }
         None
+    }
+}
+
+impl BackupDest {
+    pub fn new<P: AsRef<Path>>(root: P, host: &str, source: &BackupSource) -> Self {
+        let dest_name = BackupDest::get_safe_name(&source.path);
+        let mut dest_dir = root.as_ref().join("live");
+        dest_dir.push(host);
+        dest_dir.push(dest_name);
+
+        Self { dest_dir }
+    }
+
+    pub fn backup_dir(&self) -> &Path {
+        self.dest_dir.as_path()
+    }
+
+    pub fn get_companion_file(&self, name: &str) -> PathBuf {
+        self.dest_dir.with_extension(name)
+    }
+
+    fn get_safe_name<P: AsRef<Path>>(original: P) -> String {
+        let path = original.as_ref().to_string_lossy();
+        let name = path.trim_matches('/');
+
+        if name.is_empty() {
+            return "rootfs".to_string();
+        }
+
+        name.replace("/", "_").replace(".", "_")
     }
 }
 
@@ -221,5 +255,53 @@ mod tests {
         };
 
         assert_eq!(cfg.find_ssh_key(dir.path()), Some(keyfile));
+    }
+
+    #[test]
+    fn safe_name_rootfs() {
+        assert_eq!(BackupDest::get_safe_name("/"), "rootfs");
+        assert_eq!(BackupDest::get_safe_name("//"), "rootfs");
+    }
+
+    #[test]
+    fn safe_name_strips_slashes() {
+        assert_eq!(
+            BackupDest::get_safe_name("//home/backup/dir//"),
+            "home_backup_dir"
+        );
+    }
+
+    #[test]
+    fn safe_name_strips_periods() {
+        assert_eq!(
+            BackupDest::get_safe_name("/home/back.up/dir.abc"),
+            "home_back_up_dir_abc"
+        );
+    }
+
+    #[test]
+    fn backup_dest_main_dir() {
+        let source = BackupSource {
+            path: PathBuf::from("/opt/backups.dir"),
+            ..BackupSource::default()
+        };
+        let dest = BackupDest::new("/snapshots", "host1.example.com", &source);
+        assert_eq!(
+            dest.backup_dir(),
+            Path::new("/snapshots/live/host1.example.com/opt_backups_dir")
+        );
+    }
+
+    #[test]
+    fn backup_dest_companion_file() {
+        let source = BackupSource {
+            path: PathBuf::from("/opt/backups.dir"),
+            ..BackupSource::default()
+        };
+        let dest = BackupDest::new("/snapshots", "host1.example.com", &source);
+        assert_eq!(
+            dest.get_companion_file("exclude"),
+            Path::new("/snapshots/live/host1.example.com/opt_backups_dir.exclude")
+        );
     }
 }
