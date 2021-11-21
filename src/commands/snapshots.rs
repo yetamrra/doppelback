@@ -13,7 +13,7 @@ use std::process;
 use std::time::{self, SystemTime};
 use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, StructOpt, Default)]
 pub struct MakeSnapshotCmd {
     /// Date of the new snapshot (YYYY-MM-DD).  Defaults to today if not specified.
     date: Option<NaiveDate>,

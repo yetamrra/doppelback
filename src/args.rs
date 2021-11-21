@@ -1,7 +1,7 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use crate::commands::{rsync, snapshots, ssh, sudo};
+use crate::commands::{backup, rsync, snapshots, ssh, sudo};
 
 use std::env;
 use std::ffi::OsString;
@@ -108,6 +108,16 @@ pub enum Command {
 
     /// Make a new dated snapshot of the live snapshots subdirectory.
     MakeSnapshot(snapshots::MakeSnapshotCmd),
+
+    /// Run all the backups for a remote host
+    ///
+    /// This is equivalent to:
+    ///
+    /// 1. Create a new snapshot
+    /// 2. For each backup source in the host:
+    ///   2a. Record the snapshot name in the host's live backup directory
+    ///   2b. Run doppelback rsync for that backup source
+    PullBackup(backup::PullBackupCmd),
 }
 
 impl fmt::Display for Command {
@@ -115,6 +125,7 @@ impl fmt::Display for Command {
         let name = match self {
             Command::ConfigTest => "config-test",
             Command::MakeSnapshot(_) => "make-snapshot",
+            Command::PullBackup(_) => "pull-backup",
             Command::Rsync(_) => "rsync",
             Command::Ssh(_) => "ssh",
             Command::Sudo(_) => "sudo",

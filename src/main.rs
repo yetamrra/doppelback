@@ -15,6 +15,7 @@ extern crate utime;
 use args::Command;
 use config::{BackupHost, Config};
 use log::{error, info};
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io;
@@ -197,6 +198,32 @@ fn main() {
                 Err(e) => {
                     error!("failed to create snapshot: {}", e);
                     process::exit(1);
+                }
+            }
+        }
+
+        Command::PullBackup(pull) => {
+            if let Err(e) = config.snapshot_dir_valid() {
+                error!("Snapshot dir is invalid: {}", e);
+                process::exit(1);
+            }
+            if pull.all == args.host.is_some() {
+                error!("Exactly one of --all or --host must be supplied");
+                process::exit(1);
+            }
+            let home_dir = env::var_os("HOME").expect("HOME missing in environment");
+
+            let hosts = if pull.all {
+                config.hosts.keys()
+            } else {
+                let b = Box::new(HashMap::new());
+                let map = Box::leak(b);
+                map.insert(args.host.unwrap(), host_config);
+                map.keys()
+            };
+            for host in hosts {
+                if let Err(e) = pull.backup_host(host, &config, args.dry_run, &home_dir) {
+                    error!("Backup failed for {}: {}", host, e);
                 }
             }
         }

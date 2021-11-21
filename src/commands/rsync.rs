@@ -25,6 +25,13 @@ pub struct RsyncCmd {
 }
 
 impl RsyncCmd {
+    pub fn new<P: AsRef<Path>>(host: &str, source: P) -> Self {
+        RsyncCmd {
+            host: host.to_string(),
+            source: source.as_ref().to_string_lossy().to_string(),
+        }
+    }
+
     pub fn run_rsync(&self, config: &config::Config, dry_run: bool) -> Result<(), DoppelbackError> {
         debug!("rsync host=<{}> path=<{}>", self.host, self.source,);
 
@@ -106,14 +113,23 @@ impl RsyncCmd {
         Ok(host)
     }
 
-    fn setup_dest_dir<P: AsRef<Path>>(&self, snapshots: P) -> Result<PathBuf, DoppelbackError> {
+    pub fn get_dest_dir<P: AsRef<Path>>(&self, snapshots: P) -> PathBuf {
         let dest_name = get_safe_name(&self.source);
         let mut dest_dir = snapshots.as_ref().join("live");
         dest_dir.push(&self.host);
         dest_dir.push(dest_name);
+        dest_dir
+    }
 
+    pub fn get_companion_file<P: AsRef<Path>>(&self, snapshots: P, name: &str) -> PathBuf {
+        let mut dest_dir = self.get_dest_dir(snapshots);
+        dest_dir.set_extension(name);
+        dest_dir
+    }
+
+    fn setup_dest_dir<P: AsRef<Path>>(&self, snapshots: P) -> Result<PathBuf, DoppelbackError> {
+        let dest_dir = self.get_dest_dir(snapshots);
         fs::create_dir_all(&dest_dir)?;
-
         Ok(dest_dir)
     }
 
