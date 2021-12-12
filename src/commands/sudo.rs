@@ -49,8 +49,8 @@ impl SudoCmd {
 
         let cmd_name = cmd.file_name().unwrap_or_default().to_string_lossy();
 
-        match &*cmd_name {
-            "rsync" => rsync_util::filter_args(&self.args).map_err(DoppelbackError::IoError),
+        let args = match &*cmd_name {
+            "rsync" => rsync_util::filter_args(&self.args[1..]).map_err(DoppelbackError::IoError),
 
             _ => {
                 return Err(DoppelbackError::IoError(Error::new(
@@ -58,7 +58,12 @@ impl SudoCmd {
                     format!("Unrecognized command: {}", self.args[0]),
                 )));
             }
-        }
+        }?;
+
+        let mut full_cmd = Vec::with_capacity(args.len() + 1);
+        full_cmd.push(cmd.as_os_str().to_os_string());
+        full_cmd.extend(args);
+        Ok(full_cmd)
     }
 }
 
