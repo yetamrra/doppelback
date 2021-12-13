@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::commands::{backup, rsync, snapshots, ssh, sudo};
+use crate::config;
 
 use std::env;
 use std::ffi::OsString;
@@ -79,7 +80,7 @@ pub enum Command {
     /// The config file is always parsed at startup, but the contents are only checked for validity
     /// as needed by each subcommand.  This command runs all the checks to reduce the chances of
     /// surprises later.
-    ConfigTest,
+    ConfigTest(config::ConfigTestCmd),
 
     /// Internal wrapper for forced ssh commands.
     ///
@@ -123,7 +124,7 @@ pub enum Command {
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
-            Command::ConfigTest => "config-test",
+            Command::ConfigTest(_) => "config-test",
             Command::MakeSnapshot(_) => "make-snapshot",
             Command::PullBackup(_) => "pull-backup",
             Command::Rsync(_) => "rsync",

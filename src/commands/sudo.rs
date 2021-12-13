@@ -1,6 +1,7 @@
 // Copyright 2021 Benjamin Gordon
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+use crate::args;
 use crate::doppelback_error::DoppelbackError;
 use crate::rsync_util;
 use log::{error, info};
@@ -51,6 +52,15 @@ impl SudoCmd {
 
         let args = match &*cmd_name {
             "rsync" => rsync_util::filter_args(&self.args[1..]).map_err(DoppelbackError::IoError),
+
+            "doppelback" => match args::CliArgs::from_iter_safe(self.args.iter()) {
+                Ok(_) => Ok(self.args[1..].iter().map(OsString::from).collect()),
+
+                Err(e) => Err(DoppelbackError::IoError(Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("Invalid doppelback arguments: <{:?}>: {}", self.args, e),
+                ))),
+            },
 
             _ => {
                 return Err(DoppelbackError::IoError(Error::new(
@@ -115,6 +125,35 @@ mod tests {
                 OsString::from("--sender"),
                 OsString::from("."),
                 OsString::from("/tmp/")
+            ]
+        );
+    }
+
+    #[test]
+    fn doppelback_invalid_args_rejected() {
+        let doppelback = SudoCmd {
+            args: vec!["/usr/bin/doppelback".to_string(), "--invalid".to_string()],
+        };
+        assert!(doppelback.get_command().is_err());
+    }
+
+    #[test]
+    fn doppelback_args_are_validated() {
+        let doppelback = SudoCmd {
+            args: vec![
+                "/usr/bin/doppelback".to_string(),
+                "--config".to_string(),
+                "/tmp/config.yaml".to_string(),
+                "config-test".to_string(),
+            ],
+        };
+        assert_eq!(
+            doppelback.get_command().unwrap(),
+            vec![
+                OsString::from("/usr/bin/doppelback"),
+                OsString::from("--config"),
+                OsString::from("/tmp/config.yaml"),
+                OsString::from("config-test"),
             ]
         );
     }

@@ -13,10 +13,12 @@ extern crate lazy_static;
 extern crate utime;
 
 use args::Command;
-use config::{BackupHost, Config};
+use config::{BackupHost, Config, ConfigTestType};
 use log::{error, info};
+use pathsearch::find_executable_in_path;
 use std::collections::HashMap;
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
@@ -139,51 +141,120 @@ fn main() {
 
         // Runs all the checks on the config file and prints the results.  These aren't run every
         // time we parse the config file because not every subcommand cares about every section.
-        Command::ConfigTest => {
-            if let Err(e) = config.snapshot_dir_valid() {
-                println!("Snapshot dir is invalid: {}", e);
-                process::exit(1);
-            }
-            println!("Saving snapshots into {}", config.snapshots.display());
+        Command::ConfigTest(test) => match test.test_type {
+            ConfigTestType::Host => {
+                if let Err(e) = config.snapshot_dir_valid() {
+                    println!("Snapshot dir is invalid: {}", e);
+                    process::exit(1);
+                }
+                println!("Saving snapshots into {}", config.snapshots.display());
 
-            let home_dir = env::var_os("HOME").expect("HOME missing in environment");
-            let mut failed = HashMap::new();
-            for (host, host_config) in &config.hosts {
-                println!("Checking {}", host);
-                if !host_config.is_user_valid() {
-                    println!("  Invalid user for {}", host);
-                    failed.insert(host, format!("Invalid user {}", host_config.user));
-                    continue;
+                let home_dir = env::var_os("HOME").expect("HOME missing in environment");
+                let ssh = find_executable_in_path("ssh").unwrap_or_else(|| {
+                    println!("ssh not found in PATH");
+                    process::exit(1);
+                });
+                let mut failed = HashMap::new();
+                for (host, host_config) in &config.hosts {
+                    println!("Checking {}", host);
+                    if !host_config.is_user_valid() {
+                        println!("  Invalid user for {}", host);
+                        failed.insert(host, format!("Invalid user {}", host_config.user));
+                        continue;
+                    }
+
+                    if let Some(sshkey) = host_config.find_ssh_key(&home_dir) {
+                        println!("  Using ssh key {}", sshkey.display());
+                    } else {
+                        let reason = format!("ssh key {} not found", host_config.key.display());
+                        println!("  {}", reason);
+                        failed.insert(host, reason);
+                        continue;
+                    }
+                    let port_str = if let Some(p) = host_config.port {
+                        format!(" (port {})", p)
+                    } else {
+                        "".to_string()
+                    };
+                    println!(
+                        "  Backup sources for {}@{}{}:",
+                        host_config.user, host, port_str,
+                    );
+                    for source in &host_config.sources {
+                        print!("    {}: ", source.path.display());
+
+                        let mut remote_cmd = match host_config.ssh_args(&ssh, &home_dir) {
+                            Some(cmd) => cmd,
+
+                            None => {
+                                println!(" Failed to get ssh arguments");
+                                continue;
+                            }
+                        };
+                        remote_cmd.push(OsString::from(format!("{}@{}", &host_config.user, &host)));
+                        remote_cmd.push(OsString::from("doppelback"));
+                        remote_cmd.push(OsString::from("config-test"));
+                        remote_cmd.push(OsString::from("--type=source"));
+                        remote_cmd.push(OsString::from("--source"));
+                        remote_cmd.push(source.path.as_os_str().to_os_string());
+
+                        let output = match process::Command::new(&remote_cmd[0])
+                            .args(&remote_cmd[1..])
+                            .current_dir("/")
+                            .output()
+                        {
+                            Ok(output) => output,
+
+                            Err(e) => {
+                                println!("Failed to run ssh: {}", e);
+                                continue;
+                            }
+                        };
+                        if output.status.success() {
+                            println!("OK");
+                        } else {
+                            println!(
+                                "Failed: {}{} ",
+                                String::from_utf8_lossy(&output.stdout),
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    }
+                }
+                if !failed.is_empty() {
+                    println!("\nUnusable backups:");
+                    for (host, reason) in failed.iter() {
+                        println!("  {}: {}", host, reason);
+                    }
+                }
+            }
+
+            ConfigTestType::Remote => {
+                unimplemented!();
+            }
+
+            ConfigTestType::Source => {
+                let source = test.source.clone().unwrap_or_else(|| {
+                    eprintln!("missing --source argument");
+                    process::exit(1);
+                });
+
+                let source_config = host_config.get_source(&source).unwrap_or_else(|| {
+                    eprintln!("Source {} not found in config", source);
+                    process::exit(1);
+                });
+
+                if !source_config.path.is_dir() {
+                    eprintln!(
+                        "Source path {} is not a directory",
+                        source_config.path.display()
+                    );
+                    process::exit(1);
                 }
 
-                if let Some(sshkey) = host_config.find_ssh_key(&home_dir) {
-                    println!("  Using ssh key {}", sshkey.display());
-                } else {
-                    let reason = format!("ssh key {} not found", host_config.key.display());
-                    println!("  {}", reason);
-                    failed.insert(host, reason);
-                    continue;
-                }
-                let port_str = if let Some(p) = host_config.port {
-                    format!(" (port {})", p)
-                } else {
-                    "".to_string()
-                };
-                println!(
-                    "  Backup sources for {}@{}{}:",
-                    host_config.user, host, port_str,
-                );
-                for source in &host_config.sources {
-                    println!("    {}", source.path.display());
-                }
+                println!("OK");
             }
-            if !failed.is_empty() {
-                println!("\nUnusable backups:");
-                for (host, reason) in failed.iter() {
-                    println!("  {}: {}", host, reason);
-                }
-            }
-        }
+        },
 
         Command::Rsync(rsync) => {
             if let Err(e) = rsync.run_rsync(&config, args.dry_run) {

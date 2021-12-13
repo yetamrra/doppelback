@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::args::GlobalArgs;
-use crate::config::{BackupHost, BackupSource};
+use crate::config::{BackupHost, BackupSource, ConfigTestCmd, ConfigTestType};
 use crate::rsync_util;
 use log::{error, info};
 use pathsearch::find_executable_in_path;
@@ -94,12 +94,42 @@ impl SshCmd {
                 })
             }
 
-            "doppelback" => {
-                return Err(Error::new(
-                    ErrorKind::PermissionDenied,
-                    format!("Doppeback not implemented yet: {}", self.original_cmd),
-                ));
-            }
+            "doppelback" => match args[1] {
+                "config-test" => {
+                    // In config-test, deliberately print errors to stderr with eprintln! instead
+                    // of error! because this is an interactive command that should return results
+                    // to the user.
+                    info!("Remote config-test requested");
+
+                    let parsed = ConfigTestCmd::from_iter_safe(args[1..].iter()).map_err(|e| {
+                        let err = format!("Failed to parse remote doppelback args: {}", e);
+                        eprintln!("{}", err);
+                        Error::new(ErrorKind::InvalidInput, err)
+                    })?;
+
+                    if parsed.test_type == ConfigTestType::Host {
+                        let err = format!("config-test --type=host not allowed as remote command");
+                        eprintln!("{}", err);
+                        return Err(Error::new(ErrorKind::InvalidInput, err));
+                    }
+
+                    let source_config = parsed.source.and_then(|s| host_config.get_source(s));
+
+                    return Ok(ParsedCmd {
+                        command: "doppelback".into(),
+                        args: args[1..].iter().map(OsString::from).collect(),
+                        source: source_config,
+                        sudo: source_config.map_or(false, |c| c.root),
+                    });
+                }
+
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::PermissionDenied,
+                        format!("doppelback command {} not accepted", args[1]),
+                    ))
+                }
+            },
 
             _ => {
                 return Err(Error::new(
@@ -313,6 +343,30 @@ mod tests {
     }
 
     #[test]
+    fn invalid_doppelback_subcommand_rejected() {
+        let ssh = SshCmd {
+            original_cmd: String::from("doppelback invalid"),
+        };
+
+        let host_config = BackupHost::default();
+
+        let parsed = ssh.get_command(&host_config).unwrap_err();
+        assert_eq!(parsed.kind(), ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn invalid_doppelback_argument_rejected() {
+        let ssh = SshCmd {
+            original_cmd: String::from("doppelback config-test --invalid"),
+        };
+
+        let host_config = BackupHost::default();
+
+        let parsed = ssh.get_command(&host_config).unwrap_err();
+        assert_eq!(parsed.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
     fn non_root_command_resolves() {
         let _lock = ENV_LOCK.lock().unwrap();
 
@@ -405,7 +459,40 @@ mod tests {
             OsString::from("/path/to/doppelback"),
             OsString::from("--arg"),
         ];
-        let mut expected = Vec::with_capacity(parsed.args.len() + self_args.len() + 4);
+        let mut expected = Vec::with_capacity(parsed.args.len() + self_args.len());
+        expected.extend(self_args.clone());
+        expected.extend(parsed.args.clone());
+
+        let resolved = ssh.resolve_command(parsed, self_args).unwrap();
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn root_self_resolves() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let sudo = FakeCommand::new("sudo").unwrap();
+
+        let parsed = ParsedCmd {
+            command: OsString::from("doppelback"),
+            args: vec![OsString::from("config-test")],
+            source: None,
+            sudo: true,
+        };
+        let ssh = SshCmd {
+            original_cmd: String::from("doppelback config-test"),
+        };
+
+        let self_args = vec![
+            OsString::from("/path/to/doppelback"),
+            OsString::from("--arg"),
+        ];
+        let mut expected = Vec::with_capacity(parsed.args.len() + self_args.len() * 2 + 4);
+        expected.push(sudo.cmd.as_os_str().to_os_string());
+        expected.push(OsString::from("--"));
+        expected.extend(self_args.clone());
+        expected.push(OsString::from("sudo"));
+        expected.push(OsString::from("--"));
         expected.extend(self_args.clone());
         expected.extend(parsed.args.clone());
 

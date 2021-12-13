@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::doppelback_error::DoppelbackError;
+use clap::arg_enum;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use structopt::StructOpt;
 
 #[derive(Default, Deserialize, Debug)]
 pub struct Config {
@@ -31,6 +33,24 @@ pub struct BackupSource {
 
 pub struct BackupDest {
     dest_dir: PathBuf,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct ConfigTestCmd {
+    #[structopt(long)]
+    pub source: Option<String>,
+
+    #[structopt(long = "type", default_value = "host")]
+    pub test_type: ConfigTestType,
+}
+
+arg_enum! {
+    #[derive(Debug, PartialEq)]
+    pub enum ConfigTestType {
+        Host,
+        Source,
+        Remote,
+    }
 }
 
 impl Config {

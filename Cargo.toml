@@ -1,11 +1,12 @@
 [package]
 name = "doppelback"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Benjamin Gordon <ben@bxg.org>"]
 
 [dependencies]
 chrono = "0.4"
+clap = "2.34"
 structopt = "0.3"
 log = "0.4"
 fern = "0.5"
