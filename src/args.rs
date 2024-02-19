@@ -50,7 +50,7 @@ impl GlobalArgs {
             let mut log_arg = OsString::from("--log=");
             log_arg.push(log.canonicalize().unwrap_or_else(|_| {
                 let mut log_abs = env::current_dir().unwrap();
-                log_abs.push(&log);
+                log_abs.push(log);
                 log_abs
             }));
             args.push(log_arg);

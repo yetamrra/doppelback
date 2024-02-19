@@ -36,7 +36,7 @@ impl SshCmd {
     ) -> Result<(), Error> {
         info!("ssh cmd=<{}>", self.original_cmd);
 
-        let parsed = self.get_command(&host_config)?;
+        let parsed = self.get_command(host_config)?;
 
         if let Some(source) = parsed.source {
             if !source.path.is_dir() {
@@ -108,7 +108,8 @@ impl SshCmd {
                     })?;
 
                     if parsed.test_type == ConfigTestType::Host {
-                        let err = format!("config-test --type=host not allowed as remote command");
+                        let err =
+                            "config-test --type=host not allowed as remote command".to_string();
                         eprintln!("{}", err);
                         return Err(Error::new(ErrorKind::InvalidInput, err));
                     }
@@ -123,20 +124,16 @@ impl SshCmd {
                     });
                 }
 
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::PermissionDenied,
-                        format!("doppelback command {} not accepted", args[1]),
-                    ))
-                }
+                _ => Err(Error::new(
+                    ErrorKind::PermissionDenied,
+                    format!("doppelback command {} not accepted", args[1]),
+                )),
             },
 
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::PermissionDenied,
-                    format!("Unrecognized command: {}", self.original_cmd),
-                ));
-            }
+            _ => Err(Error::new(
+                ErrorKind::PermissionDenied,
+                format!("Unrecognized command: {}", self.original_cmd),
+            )),
         }
     }
 
@@ -145,7 +142,7 @@ impl SshCmd {
         parsed: ParsedCmd,
         self_args: Vec<OsString>,
     ) -> Result<Vec<OsString>, Error> {
-        let base_args = if parsed.command == OsString::from("doppelback") {
+        let base_args = if parsed.command == *"doppelback" {
             self_args.clone()
         } else {
             vec![find_executable_in_path(&parsed.command)

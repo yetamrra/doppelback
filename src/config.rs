@@ -108,12 +108,7 @@ impl BackupHost {
     }
 
     pub fn get_source<P: AsRef<Path>>(&self, path: P) -> Option<&BackupSource> {
-        for src in self.sources.iter() {
-            if src.path == path.as_ref() {
-                return Some(src);
-            }
-        }
-        None
+        return self.sources.iter().find(|&src| src.path == path.as_ref());
     }
 
     pub fn ssh_args<P1: AsRef<Path>, P2: AsRef<Path>>(
@@ -169,7 +164,7 @@ impl BackupDest {
             return "rootfs".to_string();
         }
 
-        name.replace("/", "_").replace(".", "_")
+        name.replace(['/', '.'], "_")
     }
 }
 

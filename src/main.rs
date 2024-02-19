@@ -291,7 +291,7 @@ fn main() {
             let hosts = if pull.all {
                 config.hosts.keys()
             } else {
-                let b = Box::new(HashMap::new());
+                let b = Box::<HashMap<String, BackupHost>>::default();
                 let map = Box::leak(b);
                 map.insert(args.host.unwrap(), host_config);
                 map.keys()
