@@ -74,10 +74,13 @@ impl SshCmd {
                         "rsync path not found in SSH_ORIGINAL_COMMAND",
                     )
                 })?;
-                let path = PathBuf::from(path).canonicalize().map_err(|e| {
-                    error!("Failed to canonicalize path {:?}: {}", path, e);
-                    e
-                })?;
+                let path = PathBuf::from(path);
+                if !path.is_absolute() {
+                    return Err(Error::new(
+                        ErrorKind::InvalidInput,
+                        format!("rsync path is not absolute: {}", path.display()),
+                    ));
+                }
                 info!("Looking for {} in host backup config", path.display());
                 let source_config = host_config.get_source(&path).ok_or_else(|| {
                     Error::new(

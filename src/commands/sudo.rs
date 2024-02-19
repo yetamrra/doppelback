@@ -51,7 +51,11 @@ impl SudoCmd {
         let cmd_name = cmd.file_name().unwrap_or_default().to_string_lossy();
 
         let args = match &*cmd_name {
-            "rsync" => rsync_util::filter_args(&self.args[1..]).map_err(DoppelbackError::IoError),
+            "rsync" => {
+                rsync_util::check_source_path(&self.args[1..])?;
+                rsync_util::filter_args(&self.args[1..])
+            }
+            .map_err(DoppelbackError::IoError),
 
             "doppelback" => match args::CliArgs::from_iter_safe(self.args.iter()) {
                 Ok(_) => Ok(self.args[1..].iter().map(OsString::from).collect()),

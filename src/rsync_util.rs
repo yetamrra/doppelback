@@ -4,6 +4,7 @@
 use log::{error, warn};
 use std::ffi::OsString;
 use std::io::{Error, ErrorKind};
+use std::path::PathBuf;
 
 pub fn filter_args<S: AsRef<str>>(args: &[S]) -> Result<Vec<OsString>, Error> {
     let mut filtered = Vec::new();
@@ -41,6 +42,33 @@ pub fn filter_args<S: AsRef<str>>(args: &[S]) -> Result<Vec<OsString>, Error> {
     Ok(filtered)
 }
 
+pub fn check_source_path<S: AsRef<str>>(args: &[S]) -> Result<(), Error> {
+    let path_arg = args
+        .iter()
+        .find(|&arg| arg.as_ref().starts_with('/'))
+        .ok_or(Error::new(
+            ErrorKind::InvalidInput,
+            "No source path found in arguments",
+        ))?;
+
+    let path = PathBuf::from(path_arg.as_ref());
+    let canon_path = path.canonicalize().map_err(|e| {
+        error!("Failed to canonicalize path {:?}: {}", path_arg.as_ref(), e);
+        e
+    })?;
+    if path != canon_path {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "Source path {} does not match canonical path {}",
+                path_arg.as_ref(),
+                canon_path.display(),
+            ),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +92,40 @@ mod tests {
                 OsString::from("/tmp/")
             ]
         );
+    }
+
+    #[test]
+    fn check_source_path_fails_without_path() {
+        let cmd = vec![
+            "--server",
+            "--sender",
+            "--remove-sent-files",
+            "--remove-source-files",
+        ];
+        assert!(check_source_path(&cmd).is_err());
+    }
+
+    #[test]
+    fn check_source_path_fails_for_non_canonical_path() {
+        let cmd = vec![
+            "--server",
+            "--sender",
+            "--remove-sent-files",
+            "--remove-source-files",
+            "/tmp/../",
+        ];
+        assert!(check_source_path(&cmd).is_err());
+    }
+
+    #[test]
+    fn check_source_path_succeeds_for_real_path() {
+        let cmd = vec![
+            "--server",
+            "--sender",
+            "--remove-sent-files",
+            "--remove-source-files",
+            "/tmp",
+        ];
+        assert!(check_source_path(&cmd).is_ok());
     }
 }
