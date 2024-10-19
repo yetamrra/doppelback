@@ -116,8 +116,8 @@ pub enum Command {
     ///
     /// 1. Create a new snapshot
     /// 2. For each backup source in the host:
-    ///   2a. Record the snapshot name in the host's live backup directory
-    ///   2b. Run doppelback rsync for that backup source
+    ///     2a. Record the snapshot name in the host's live backup directory
+    ///     2b. Run doppelback rsync for that backup source
     PullBackup(backup::PullBackupCmd),
 }
 
