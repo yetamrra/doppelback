@@ -25,7 +25,7 @@ impl MakeSnapshotCmd {
         snapshots: P,
         dry_run: bool,
     ) -> Result<String, DoppelbackError> {
-        let date = self.date.unwrap_or_else(|| Local::today().naive_local());
+        let date = self.date.unwrap_or_else(|| Local::now().date_naive());
 
         let snapname = next_available_name(snapshots.as_ref(), date);
         let livedir = snapshots.as_ref().join("live");
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn name_starts_at_0() {
         let dir = TempDir::new("names").unwrap();
-        let date = NaiveDate::from_ymd(2021, 07, 04);
+        let date = NaiveDate::from_ymd_opt(2021, 07, 04).unwrap();
 
         let name = next_available_name(dir.path(), date);
 
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn name_skips_existing() {
         let dir = TempDir::new("names").unwrap();
-        let date = NaiveDate::from_ymd(2021, 07, 04);
+        let date = NaiveDate::from_ymd_opt(2021, 07, 04).unwrap();
         fs::create_dir(dir.path().join("20210704.00")).unwrap();
         fs::create_dir(dir.path().join("20210704.01")).unwrap();
 
