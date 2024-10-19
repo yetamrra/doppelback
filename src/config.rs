@@ -17,12 +17,23 @@ pub struct Config {
     pub hosts: HashMap<String, BackupHost>,
 }
 
+#[derive(Clone, Deserialize, Debug, Default)]
+pub enum Inhibit {
+    #[default]
+    None,
+    #[serde(rename = "systemctl")]
+    Systemctl,
+    #[serde(rename = "caffeinate")]
+    Caffeinate,
+}
+
 #[derive(Clone, Default, Deserialize, Debug)]
 pub struct BackupHost {
     pub user: String,
     pub port: Option<u16>,
     pub key: PathBuf,
     pub sources: Vec<BackupSource>,
+    pub inhibit_shutdown: Option<Inhibit>,
 }
 
 #[derive(Clone, Default, Deserialize, Debug)]

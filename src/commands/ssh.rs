@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::args::GlobalArgs;
-use crate::config::{BackupHost, BackupSource, ConfigTestCmd, ConfigTestType};
+use crate::config::{BackupHost, BackupSource, ConfigTestCmd, ConfigTestType, Inhibit};
 use crate::rsync_util;
 use log::{error, info};
 use pathsearch::find_executable_in_path;
@@ -25,6 +25,7 @@ struct ParsedCmd<'a> {
     args: Vec<OsString>,
     source: Option<&'a BackupSource>,
     sudo: bool,
+    inhibit: Inhibit,
 }
 
 impl SshCmd {
@@ -94,6 +95,10 @@ impl SshCmd {
                     args: rsync_util::filter_args(&args[1..])?,
                     source: Some(source_config),
                     sudo: source_config.root,
+                    inhibit: host_config
+                        .inhibit_shutdown
+                        .clone()
+                        .unwrap_or(Inhibit::None),
                 })
             }
 
@@ -124,6 +129,7 @@ impl SshCmd {
                         args: args[1..].iter().map(OsString::from).collect(),
                         source: source_config,
                         sudo: source_config.map_or(false, |c| c.root),
+                        inhibit: Inhibit::None,
                     });
                 }
 
@@ -171,6 +177,30 @@ impl SshCmd {
             sudo_args.extend(self_args);
             sudo_args.append(&mut vec![OsString::from("sudo"), OsString::from("--")]);
             command.splice(..0, sudo_args);
+        }
+
+        match parsed.inhibit {
+            Inhibit::None => {}
+            Inhibit::Systemctl => {
+                let inhibit: PathBuf =
+                    find_executable_in_path("systemd-inhibit").ok_or_else(|| {
+                        Error::new(ErrorKind::NotFound, "Couldn't find systemd-inhibit in PATH")
+                    })?;
+                let inhibit_args = vec![
+                    OsString::from(inhibit),
+                    OsString::from("--who=doppelback"),
+                    OsString::from("--why=Backup running"),
+                    OsString::from("--"),
+                ];
+                command.splice(..0, inhibit_args);
+            }
+            Inhibit::Caffeinate => {
+                let inhibit: PathBuf = find_executable_in_path("caffeinate").ok_or_else(|| {
+                    Error::new(ErrorKind::NotFound, "Couldn't find caffeinate in PATH")
+                })?;
+                let inhibit_args = vec![OsString::from(inhibit), OsString::from("-i")];
+                command.splice(..0, inhibit_args);
+            }
         }
 
         Ok(command)
@@ -383,6 +413,7 @@ mod tests {
             ],
             source: None,
             sudo: false,
+            inhibit: Inhibit::None,
         };
         let ssh = SshCmd {
             original_cmd: format!(
@@ -418,6 +449,7 @@ mod tests {
             ],
             source: None,
             sudo: true,
+            inhibit: Inhibit::default(),
         };
         let ssh = SshCmd {
             original_cmd: format!(
@@ -450,6 +482,7 @@ mod tests {
             args: vec![OsString::from("config-test")],
             source: None,
             sudo: false,
+            inhibit: Inhibit::default(),
         };
         let ssh = SshCmd {
             original_cmd: String::from("doppelback config-test"),
@@ -478,6 +511,7 @@ mod tests {
             args: vec![OsString::from("config-test")],
             source: None,
             sudo: true,
+            inhibit: Inhibit::default(),
         };
         let ssh = SshCmd {
             original_cmd: String::from("doppelback config-test"),
@@ -494,6 +528,180 @@ mod tests {
         expected.push(OsString::from("sudo"));
         expected.push(OsString::from("--"));
         expected.extend(self_args.clone());
+        expected.extend(parsed.args.clone());
+
+        let resolved = ssh.resolve_command(parsed, self_args).unwrap();
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn non_root_inhibit_systemd() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let rsync = FakeCommand::new("rsync").unwrap();
+        let inhibit = FakeCommand::new("systemd-inhibit").unwrap();
+        let dir = TempDir::new("test").unwrap();
+
+        let parsed = ParsedCmd {
+            command: OsString::from("rsync"),
+            args: vec![
+                OsString::from("--server"),
+                OsString::from("--sender"),
+                OsString::from("."),
+                OsString::from(format!("{}/", dir.path().display())),
+            ],
+            source: None,
+            sudo: false,
+            inhibit: Inhibit::Systemctl,
+        };
+        let ssh = SshCmd {
+            original_cmd: format!(
+                "rsync --server --sender --remove-sent-files --remove-source-files . {}/",
+                dir.path().display()
+            ),
+        };
+
+        let self_args = vec![OsString::from("/path/to/doppelback")];
+        let mut expected = Vec::with_capacity(parsed.args.len() + 4);
+        expected.push(inhibit.cmd.as_os_str().to_os_string());
+        expected.push(OsString::from("--who=doppelback"));
+        expected.push(OsString::from("--why=Backup running"));
+        expected.push(OsString::from("--"));
+        expected.push(rsync.cmd.as_os_str().to_os_string());
+        expected.extend(parsed.args.clone());
+
+        let resolved = ssh.resolve_command(parsed, self_args).unwrap();
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn root_inhibit_systemd() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let rsync = FakeCommand::new("rsync").unwrap();
+        let sudo = FakeCommand::new("sudo").unwrap();
+        let inhibit = FakeCommand::new("systemd-inhibit").unwrap();
+        let dir = TempDir::new("test").unwrap();
+
+        let parsed = ParsedCmd {
+            command: OsString::from("rsync"),
+            args: vec![
+                OsString::from("--server"),
+                OsString::from("--sender"),
+                OsString::from("."),
+                OsString::from(format!("{}/", dir.path().display())),
+            ],
+            source: None,
+            sudo: true,
+            inhibit: Inhibit::Systemctl,
+        };
+        let ssh = SshCmd {
+            original_cmd: format!(
+                "rsync --server --sender --remove-sent-files --remove-source-files . {}/",
+                dir.path().display()
+            ),
+        };
+
+        let self_args = vec![
+            OsString::from("/path/to/doppelback"),
+            OsString::from("--arg"),
+        ];
+        let mut expected = Vec::with_capacity(parsed.args.len() + self_args.len() + 4);
+        expected.push(inhibit.cmd.as_os_str().to_os_string());
+        expected.push(OsString::from("--who=doppelback"));
+        expected.push(OsString::from("--why=Backup running"));
+        expected.push(OsString::from("--"));
+        expected.push(sudo.cmd.as_os_str().to_os_string());
+        expected.push(OsString::from("--"));
+        expected.extend(self_args.clone());
+        expected.push(OsString::from("sudo"));
+        expected.push(OsString::from("--"));
+        expected.push(rsync.cmd.as_os_str().to_os_string());
+        expected.extend(parsed.args.clone());
+
+        let resolved = ssh.resolve_command(parsed, self_args).unwrap();
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn root_inhibit_caffeinate() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let rsync = FakeCommand::new("rsync").unwrap();
+        let sudo = FakeCommand::new("sudo").unwrap();
+        let inhibit = FakeCommand::new("caffeinate").unwrap();
+        let dir = TempDir::new("test").unwrap();
+
+        let parsed = ParsedCmd {
+            command: OsString::from("rsync"),
+            args: vec![
+                OsString::from("--server"),
+                OsString::from("--sender"),
+                OsString::from("."),
+                OsString::from(format!("{}/", dir.path().display())),
+            ],
+            source: None,
+            sudo: true,
+            inhibit: Inhibit::Caffeinate,
+        };
+        let ssh = SshCmd {
+            original_cmd: format!(
+                "rsync --server --sender --remove-sent-files --remove-source-files . {}/",
+                dir.path().display()
+            ),
+        };
+
+        let self_args = vec![
+            OsString::from("/path/to/doppelback"),
+            OsString::from("--arg"),
+        ];
+        let mut expected = Vec::with_capacity(parsed.args.len() + self_args.len() + 4);
+        expected.push(inhibit.cmd.as_os_str().to_os_string());
+        expected.push(OsString::from("-i"));
+        expected.push(sudo.cmd.as_os_str().to_os_string());
+        expected.push(OsString::from("--"));
+        expected.extend(self_args.clone());
+        expected.push(OsString::from("sudo"));
+        expected.push(OsString::from("--"));
+        expected.push(rsync.cmd.as_os_str().to_os_string());
+        expected.extend(parsed.args.clone());
+
+        let resolved = ssh.resolve_command(parsed, self_args).unwrap();
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn non_root_inhibit_caffeinate() {
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        let rsync = FakeCommand::new("rsync").unwrap();
+        let inhibit = FakeCommand::new("caffeinate").unwrap();
+        let dir = TempDir::new("test").unwrap();
+
+        let parsed = ParsedCmd {
+            command: OsString::from("rsync"),
+            args: vec![
+                OsString::from("--server"),
+                OsString::from("--sender"),
+                OsString::from("."),
+                OsString::from(format!("{}/", dir.path().display())),
+            ],
+            source: None,
+            sudo: false,
+            inhibit: Inhibit::Caffeinate,
+        };
+        let ssh = SshCmd {
+            original_cmd: format!(
+                "rsync --server --sender --remove-sent-files --remove-source-files . {}/",
+                dir.path().display()
+            ),
+        };
+
+        let self_args = vec![OsString::from("/path/to/doppelback")];
+        let mut expected = Vec::with_capacity(parsed.args.len() + 4);
+        expected.push(inhibit.cmd.as_os_str().to_os_string());
+        expected.push(OsString::from("-i"));
+        expected.push(rsync.cmd.as_os_str().to_os_string());
         expected.extend(parsed.args.clone());
 
         let resolved = ssh.resolve_command(parsed, self_args).unwrap();
