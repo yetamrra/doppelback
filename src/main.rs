@@ -155,7 +155,12 @@ fn main() {
                     process::exit(1);
                 });
                 let mut failed = HashMap::new();
+                let only_host = args.host.unwrap_or("".into());
                 for (host, host_config) in &config.hosts {
+                    if !only_host.is_empty() && &only_host != host {
+                        continue;
+                    }
+
                     println!("Checking {}", host);
                     if !host_config.is_user_valid() {
                         println!("  Invalid user for {}", host);
